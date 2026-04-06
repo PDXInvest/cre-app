@@ -38,6 +38,34 @@ const CAPEX_ITEMS = [
 
 const ALL_LINE_ITEMS = [...REVENUE_ITEMS, ...OTHER_INCOME_ITEMS, ...EXPENSE_ITEMS, ...CAPEX_ITEMS]
 
+const GROWTH_ASSUMPTIONS = [
+  { section: 'Revenue', items: [
+    { code: 'rent_bump_cap', label: 'Annual Rent Bump Cap', fmt: 'pct' },
+    { code: 'market_rent_growth', label: 'Market Rent Growth', fmt: 'pct' },
+    { code: 'loss_to_lease_pct', label: 'Loss-to-Lease', fmt: 'pct' },
+    { code: 'concessions_pct', label: 'Concessions', fmt: 'pct' },
+    { code: 'vacancy_rate', label: 'General Vacancy & Credit Loss', fmt: 'pct' },
+    { code: 'rubs_growth', label: 'RUBS Growth', fmt: 'pct' },
+    { code: 'other_income_growth', label: 'Other Income Growth', fmt: 'pct' },
+    { code: 'parking_growth', label: 'Parking Income Growth', fmt: 'pct' },
+    { code: 'storage_growth', label: 'Storage Income Growth', fmt: 'pct' },
+  ]},
+  { section: 'Operating Expenses', items: [
+    { code: 'controllable_growth', label: 'Controllable Expense Growth', fmt: 'pct' },
+    { code: 'rm_growth', label: 'Repairs & Maintenance Growth', fmt: 'pct' },
+    { code: 'property_tax_growth', label: 'Property Tax Growth', fmt: 'pct' },
+    { code: 'insurance_per_unit', label: 'Insurance ($/unit)', fmt: 'dollar' },
+    { code: 'insurance_growth', label: 'Insurance Growth', fmt: 'pct' },
+    { code: 'property_mgmt_pct', label: 'Property Management (% of EGR)', fmt: 'pct' },
+    { code: 'utilities_per_unit', label: 'Utilities ($/unit)', fmt: 'dollar' },
+    { code: 'utilities_growth', label: 'Utilities Growth', fmt: 'pct' },
+    { code: 'turnover_per_unit', label: 'Turnover ($/unit)', fmt: 'dollar' },
+    { code: 'turnover_growth', label: 'Turnover Growth', fmt: 'pct' },
+    { code: 'cap_reserves_per_unit', label: 'Capital Reserves ($/unit)', fmt: 'dollar' },
+    { code: 'cap_reserves_growth', label: 'Capital Reserves Growth', fmt: 'pct' },
+  ]},
+]
+
 function currentYears() {
   const y = new Date().getFullYear()
   return [y - 3, y - 2, y - 1]
@@ -52,10 +80,11 @@ const fmt$ = v => { const n = Number(v); return isNaN(n) || n === 0 ? '—' : (n
 export default function Financials({ proposal }) {
   const [data, setData] = useState(null)
   const [rentRollUnits, setRentRollUnits] = useState([])
+  const [defaults, setDefaults] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
-  const [section, setSection] = useState('annual') // annual | monthly
+  const [section, setSection] = useState('annual') // annual | monthly | assumptions
 
   const years = currentYears()
   const periods = [...years.map(String), 't12', 'scheduled', 'stabilized', 'market']
@@ -76,6 +105,12 @@ export default function Financials({ proposal }) {
       supabase.from('proposal_financials').select('*').eq('proposal_id', proposal.id).maybeSingle(),
       supabase.from('rent_roll_units').select('*').eq('proposal_id', proposal.id),
     ])
+    // Fetch defaults separately — table may not exist yet
+    try {
+      const { data: settingsRow } = await supabase.from('app_settings').select('*').eq('key', 'growth_assumptions').maybeSingle()
+      if (settingsRow?.value) setDefaults(settingsRow.value)
+    } catch (e) { console.warn('app_settings not available:', e) }
+
     if (row) {
       setData(row)
     } else {
@@ -110,27 +145,141 @@ export default function Financials({ proposal }) {
     }))
   }
 
-  // ── Rent Roll → Scheduled column link ──
+  // ── T-12 month keys and helpers (must be before projection engine) ──
+  function getT12MonthKeys() {
+    const [y, m] = t12EndMonth.split('-').map(Number)
+    const endDate = new Date(y, m - 1, 1)
+    const keys = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1)
+      keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+    return keys
+  }
+  const t12Months = getT12MonthKeys()
+
+  function monthLabel(key) {
+    const [y, m] = key.split('-')
+    return `${MONTHS[parseInt(m) - 1]} ${y.slice(-2)}`
+  }
+
+  function getMonthVal(monthKey, code) {
+    return data?.t12_monthly?.[monthKey]?.[code] ?? ''
+  }
+  function setMonthVal(monthKey, code, value) {
+    setData(prev => {
+      const tm = { ...(prev.t12_monthly || {}) }
+      tm[monthKey] = { ...(tm[monthKey] || {}), [code]: value === '' ? null : Number(value) }
+      return { ...prev, t12_monthly: tm }
+    })
+  }
+
+  function t12MonthlyTotal(code) {
+    return t12Months.reduce((s, mk) => s + (Number(getMonthVal(mk, code)) || 0), 0)
+  }
+
+  // ── Projection calculation engine ──
+  const totalUnits = rentRollUnits.length || (proposal.properties?.total_units ?? 0)
   const rrTotalActual = rentRollUnits.reduce((s, u) => s + (Number(u.actual_rent) || 0), 0)
   const rrTotalMarket = rentRollUnits.reduce((s, u) => s + (Number(u.market_rent) || 0), 0)
   const rrTotalRubs = rentRollUnits.reduce((s, u) => s + (Number(u.current_rubs) || 0), 0)
-  const rrAnnual = {
-    collected_rent: rrTotalActual * 12,
-    market_rent: rrTotalMarket * 12,
-    loss_to_lease: (rrTotalActual - rrTotalMarket) * 12,
-    rubs: rrTotalRubs * 12,
+  const rrTotalMarketRubs = rentRollUnits.reduce((s, u) => s + (Number(u.market_rubs) || 0), 0)
+
+  // Effective assumption: proposal override → app default → 0
+  function ga(code) {
+    const ov = data?.growth_assumptions?.[code]
+    if (ov != null && ov !== '') return Number(ov) || 0
+    return Number(defaults[code]) || 0
   }
-  const isRentRollLinked = (period, code) => period === 'scheduled' && rrAnnual[code] != null && rentRollUnits.length > 0
+
+  // T-12 value helper for growth base
+  function getT12Val(code) {
+    try { return t12MonthlyTotal(code) || 0 } catch { return 0 }
+  }
+
+  // Auto-calculate projection values
+  function getAutoCalcValue(period, code) {
+    if (!['scheduled', 'stabilized', 'market'].includes(period)) return null
+    if (!totalUnits) return null
+
+    try {
+      const annualActual = rrTotalActual * 12
+      const annualMarket = rrTotalMarket * 12
+      const mktGrowth = 1 + ga('market_rent_growth')
+
+      const baseCollected = period === 'scheduled' ? annualActual : period === 'stabilized' ? annualMarket : annualMarket * mktGrowth
+      const baseMarketRent = period === 'market' ? annualMarket * mktGrowth : annualMarket
+
+      // Revenue
+      if (code === 'market_rent') return baseMarketRent || null
+      if (code === 'loss_to_lease') return period === 'scheduled' ? (annualActual - annualMarket) : 0
+      if (code === 'collected_rent') return baseCollected || null
+      if (code === 'concessions') return baseCollected ? -(baseCollected * ga('concessions_pct')) : null
+
+      // General Vacancy (in EGR section) — auto-calc for projections
+      if (code === '_gen_vacancy') return baseCollected ? -(baseCollected * ga('vacancy_rate')) : null
+
+      // Other income
+      if (code === 'rubs') return period === 'scheduled' ? rrTotalRubs * 12 : rrTotalMarketRubs * 12
+      if (code === 'parking') return (getT12Val('parking')) * (1 + ga('parking_growth'))
+      if (code === 'storage') return (getT12Val('storage')) * (1 + ga('storage_growth'))
+      if (code === 'other_income') return (getT12Val('other_income')) * (1 + ga('other_income_growth'))
+
+      // Per-unit expenses
+      const expYears = period === 'market' ? 2 : period === 'stabilized' ? 1 : 0
+      if (code === 'insurance') return ga('insurance_per_unit') * totalUnits * Math.pow(1 + ga('insurance_growth'), expYears)
+      if (code === 'utilities') return ga('utilities_per_unit') * totalUnits * Math.pow(1 + ga('utilities_growth'), expYears)
+      if (code === 'turnover') return ga('turnover_per_unit') * totalUnits * Math.pow(1 + ga('turnover_growth'), expYears)
+      if (code === 'capital_reserves') return ga('cap_reserves_per_unit') * totalUnits * Math.pow(1 + ga('cap_reserves_growth'), expYears)
+
+      // Controllable expenses — grow from T-12
+      const controllable = ['administrative', 'repairs_maintenance', 'landscaping', 'security', 'contract_services', 'advertising', 'payroll', 'misc']
+      if (controllable.includes(code)) {
+        const rate = code === 'repairs_maintenance' ? ga('rm_growth') : ga('controllable_growth')
+        return getT12Val(code) * Math.pow(1 + rate, expYears + 1)
+      }
+      if (code === 'property_taxes') return getT12Val('property_taxes') * Math.pow(1 + ga('property_tax_growth'), expYears + 1)
+      if (code === 'other_taxes') return getT12Val('other_taxes') * Math.pow(1 + ga('controllable_growth'), expYears + 1)
+
+      // Property management — % of EGR
+      if (code === 'property_mgmt') {
+        const vacancy = baseCollected * ga('vacancy_rate')
+        const conc = baseCollected * ga('concessions_pct')
+        const egr = baseCollected - vacancy - conc
+        return egr * ga('property_mgmt_pct')
+      }
+    } catch (e) { console.warn('Projection calc error:', code, e); return null }
+
+    return null
+  }
+
+  const isAutoCalc = (p, code) => getAutoCalcValue(p, code) != null
+
+  // ── Growth Assumption UI helpers ──
+  function getDefault(code) { return defaults[code] ?? '' }
+  function getOverride(code) { return data?.growth_assumptions?.[code] ?? '' }
+  function getEffective(code) {
+    const ov = data?.growth_assumptions?.[code]
+    return ov != null && ov !== '' ? ov : (defaults[code] ?? '')
+  }
+  function setDefault(code, value) { setDefaults(prev => ({ ...prev, [code]: value === '' ? null : Number(value) })) }
+  function setOverride(code, value) {
+    setData(prev => ({ ...prev, growth_assumptions: { ...(prev.growth_assumptions || {}), [code]: value === '' ? null : Number(value) } }))
+  }
+  function clearOverride(code) {
+    setData(prev => { const ga = { ...(prev.growth_assumptions || {}) }; delete ga[code]; return { ...prev, growth_assumptions: ga } })
+  }
 
   // ── Annual income statement helpers ──
   function getVal(period, code) {
     if (period === 't12') return t12MonthlyTotal(code) || ''
-    if (isRentRollLinked(period, code)) return rrAnnual[code] || ''
+    const auto = getAutoCalcValue(period, code)
+    if (auto != null) return auto
     return data?.income_statement?.[period]?.[code] ?? ''
   }
   function setVal(period, code, value) {
     if (period === 't12') return
-    if (isRentRollLinked(period, code)) return
+    if (isAutoCalc(period, code)) return
     setData(prev => {
       const is = { ...(prev.income_statement || {}) }
       is[period] = { ...(is[period] || {}), [code]: value === '' ? null : Number(value) }
@@ -138,7 +287,7 @@ export default function Financials({ proposal }) {
     })
   }
   const isT12 = p => p === 't12'
-  const isReadOnly = (p, code) => isT12(p) || isRentRollLinked(p, code)
+  const isReadOnly = (p, code) => isT12(p) || isAutoCalc(p, code)
 
   // ── Custom line items per section ──
   function getCustomItems(sectionKey) {
@@ -175,18 +324,6 @@ export default function Financials({ proposal }) {
     })
   }
 
-  // ── Monthly T-12 helpers ──
-  function getMonthVal(monthKey, code) {
-    return data?.t12_monthly?.[monthKey]?.[code] ?? ''
-  }
-  function setMonthVal(monthKey, code, value) {
-    setData(prev => {
-      const tm = { ...(prev.t12_monthly || {}) }
-      tm[monthKey] = { ...(tm[monthKey] || {}), [code]: value === '' ? null : Number(value) }
-      return { ...prev, t12_monthly: tm }
-    })
-  }
-
   // ── Computed totals for annual ──
   function sumItems(period, items) {
     return items.reduce((s, item) => s + (Number(getVal(period, item.code)) || 0), 0)
@@ -215,29 +352,6 @@ export default function Financials({ proposal }) {
   // Monthly Total Rental Revenue = collected_rent only
   function monthlyTotalRentalRevenue(mk) { return (Number(getMonthVal(mk, 'collected_rent')) || 0) + sumMonthCustom(mk, 'revenue') }
 
-  // ── Get T-12 month keys based on stored end month ──
-  function getT12MonthKeys() {
-    const [y, m] = t12EndMonth.split('-').map(Number)
-    const endDate = new Date(y, m - 1, 1) // month is 0-indexed in Date
-    const keys = []
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(endDate.getFullYear(), endDate.getMonth() - i, 1)
-      keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-    }
-    return keys
-  }
-  const t12Months = getT12MonthKeys()
-
-  function monthLabel(key) {
-    const [y, m] = key.split('-')
-    return `${MONTHS[parseInt(m) - 1]} ${y.slice(-2)}`
-  }
-
-  // T-12 annual total from monthly
-  function t12MonthlyTotal(code) {
-    return t12Months.reduce((s, mk) => s + (Number(getMonthVal(mk, code)) || 0), 0)
-  }
-
   async function save() {
     setSaving(true)
     const { error } = await supabase
@@ -250,7 +364,8 @@ export default function Financials({ proposal }) {
       })
       .eq('id', data.id)
     if (error) { console.error(error); setMsg('Save error'); setSaving(false); return }
-    setMsg('Financials saved')
+    try { await supabase.from('app_settings').update({ value: defaults, updated_at: new Date().toISOString() }).eq('key', 'growth_assumptions') } catch (e) { console.warn('Could not save defaults:', e) }
+    setMsg('Saved')
     setTimeout(() => setMsg(''), 3000)
     setSaving(false)
   }
@@ -267,14 +382,12 @@ export default function Financials({ proposal }) {
   const t12Bg = '#E6F1FB' // blue tint for T-12 column (matches monthly total)
   const tabBtn = (active) => ({ padding: '6px 14px', fontSize: 12, fontWeight: 500, border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer', background: active ? '#fff' : 'transparent', color: active ? '#111' : '#888', borderBottom: active ? '2px solid #111' : 'none' })
 
-  // Cell renderer: read-only computed value for T-12, editable input for other periods
-  // Cell renderer: read-only for T-12 and rent-roll-linked, editable for others
-  const rrBg = '#E1F5EE'
+  // Cell renderer: read-only for T-12 and auto-calculated projections
   const cellBg = p => isT12(p) ? t12Bg : isProj(p) ? '#F8F7FF' : 'transparent'
   const valCell = (p, code) => {
     if (isReadOnly(p, code)) {
-      const bg = isT12(p) ? t12Bg : isRentRollLinked(p, code) ? rrBg : '#f5f5f5'
-      return <td key={p} style={{ padding: cellPad, textAlign: 'right', fontSize: 12, background: bg, borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap', color: '#333' }} title={isRentRollLinked(p, code) ? 'From rent roll (annualized)' : undefined}>{fmt$(getVal(p, code))}</td>
+      const bg = isT12(p) ? t12Bg : isAutoCalc(p, code) ? projBg : '#f5f5f5'
+      return <td key={p} style={{ padding: cellPad, textAlign: 'right', fontSize: 12, background: bg, borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap', color: '#333' }} title={isAutoCalc(p, code) ? 'Auto-calculated from assumptions' : undefined}>{fmt$(getVal(p, code))}</td>
     }
     return <td key={p} style={inputCell(p)}><input type="number" value={getVal(p, code)} onChange={e => setVal(p, code, e.target.value)} style={numInput} placeholder="0" /></td>
   }
@@ -330,6 +443,7 @@ export default function Financials({ proposal }) {
         <div style={{ display: 'flex', gap: 2, borderBottom: borderC }}>
           <button onClick={() => setSection('annual')} style={tabBtn(section === 'annual')}>Summary Income Statement</button>
           <button onClick={() => setSection('monthly')} style={tabBtn(section === 'monthly')}>T-12 Monthly Detail</button>
+          <button onClick={() => setSection('assumptions')} style={tabBtn(section === 'assumptions')}>Growth Assumptions</button>
         </div>
         <button onClick={save} disabled={saving} style={{ padding: '6px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, fontSize: 12, opacity: saving ? 0.6 : 1 }}>
           {saving ? 'Saving...' : 'Save Financials'}
@@ -538,6 +652,54 @@ export default function Financials({ proposal }) {
             </tbody>
           </table>
         </div>
+        </div>
+      )}
+
+      {/* ── GROWTH ASSUMPTIONS ── */}
+      {section === 'assumptions' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
+            <thead>
+              <tr>
+                <th style={{ ...hdrStyle, width: 250, textAlign: 'left' }}>Assumption</th>
+                <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 120 }}>Default</th>
+                <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 120, background: projBg }}>This Proposal</th>
+                <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 100 }}>Effective</th>
+                <th style={{ ...hdrStyle, width: 40 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {GROWTH_ASSUMPTIONS.map(group => [
+                <tr key={group.section + '-hdr'}>
+                  <td colSpan={5} style={hdrStyle}>{group.section}</td>
+                </tr>,
+                ...group.items.map(item => {
+                  const isPct = item.fmt === 'pct'
+                  const hasOv = data?.growth_assumptions?.[item.code] != null && data?.growth_assumptions?.[item.code] !== ''
+                  const eff = getEffective(item.code)
+                  const fmtDisp = v => (v === '' || v == null) ? '—' : isPct ? (Number(v) * 100).toFixed(1) + '%' : '$' + Math.round(Number(v)).toLocaleString()
+                  return (
+                    <tr key={item.code} style={{ background: hasOv ? '#F8F7FF' : '#fff' }}>
+                      <td style={{ ...labelStyle, paddingLeft: 16 }}>{item.label}</td>
+                      <td style={{ padding: '2px 4px', borderBottom: borderC, borderRight: borderC }}>
+                        <input type="number" step={isPct ? '0.001' : '1'} value={getDefault(item.code)} onChange={e => setDefault(item.code, e.target.value)} style={{ ...numInput, fontSize: 12 }} placeholder={isPct ? '0.05' : '0'} />
+                      </td>
+                      <td style={{ padding: '2px 4px', borderBottom: borderC, borderRight: borderC, background: '#F8F7FF' }}>
+                        <input type="number" step={isPct ? '0.001' : '1'} value={getOverride(item.code)} onChange={e => setOverride(item.code, e.target.value)} style={{ ...numInput, fontSize: 12 }} placeholder="Use default" />
+                      </td>
+                      <td style={{ padding: cellPad, textAlign: 'right', borderBottom: borderC, borderRight: borderC, fontWeight: 500, color: hasOv ? '#3C3489' : '#333' }}>{fmtDisp(eff)}</td>
+                      <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
+                        {hasOv && <button onClick={() => clearOverride(item.code)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 11 }} title="Reset to default">↩</button>}
+                      </td>
+                    </tr>
+                  )
+                })
+              ]).flat()}
+            </tbody>
+          </table>
+          <div style={{ padding: '8px 12px', fontSize: 11, color: '#888', borderTop: borderC }}>
+            Percentages entered as decimals (e.g., 0.05 = 5%). Dollar amounts are annual per-unit. Purple highlights indicate proposal-level overrides.
+          </div>
         </div>
       )}
     </div>
