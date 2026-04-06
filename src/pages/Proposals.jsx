@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import Papa from 'papaparse'
 import RentRoll from './RentRoll'
+import Financials from './Financials'
 
 const STAGES = ['Prospect', 'Proposal', 'Exclusive Rep', 'Active', 'Under Contract', 'Sold', 'Lost']
 const STAGE_STYLE = {
@@ -487,10 +488,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       )}
 
       {tab === 'financials' && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '3rem', textAlign: 'center', color: '#888' }}>
-          <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 8, color: '#333' }}>Financials coming next</p>
-          <p style={{ fontSize: 13 }}>Income statement, T-12 monthly detail, and growth assumptions will go here.</p>
-        </div>
+        <Financials proposal={proposal} />
       )}
     </div>
   )
