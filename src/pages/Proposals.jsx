@@ -478,10 +478,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       )}
 
       {tab === 'comp analysis' && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '3rem', textAlign: 'center', color: '#888' }}>
-          <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 8, color: '#333' }}>Comp analysis coming soon</p>
-          <p style={{ fontSize: 13 }}>This will pull from your comp database and auto-populate filters from this property record.</p>
-        </div>
+        <CompAnalysis proposal={proposal} />
       )}
     </div>
   )
@@ -555,6 +552,395 @@ function DueDiligence({ proposal, onSaved }) {
       <button onClick={save} disabled={saving} style={{ marginTop: 12, padding: '8px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: saving ? 0.6 : 1 }}>
         {saving ? 'Saving...' : 'Save due diligence'}
       </button>
+    </div>
+  )
+}
+
+/* ── helpers shared with CompAnalysis ── */
+function parseDate(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d }
+function daysBetween(a, b) { const da = parseDate(a), db = parseDate(b); if (!da || !db) return null; return Math.round(Math.abs((db - da) / 86400000)) }
+function median(arr) { const c = arr.filter(v => v != null && isFinite(v)); if (!c.length) return null; const s = [...c].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+function mean(arr) { const c = arr.filter(v => v != null && isFinite(v)); if (!c.length) return null; return c.reduce((a, b) => a + b, 0) / c.length }
+
+const DATE_RANGES = [
+  { label: '3 months', days: 90 },
+  { label: '6 months', days: 180 },
+  { label: '1 year', days: 365 },
+  { label: '18 months', days: 548 },
+  { label: '2 years', days: 730 },
+]
+const STAT_STATUSES = ['Active', 'Under Contract', 'Sold']
+const ERA_OPTIONS = ['Pre-1940', '1940-1970', '1970-1990', '1990-2010', '2010-Present']
+
+function unitRangeFromSubType(subType, totalUnits) {
+  const ranges = { 'Duplex/Triplex': [2,3], 'Fourplex': [4,4], '5-8 Units': [5,8], '9-20 Units': [9,20], '21-50 Units': [21,50], '51-100 Units': [51,100], '100+ Units': [101,999] }
+  if (subType && ranges[subType]) return ranges[subType]
+  const u = parseInt(totalUnits)
+  if (u >= 101) return [101, 999]
+  if (u >= 51) return [51, 100]
+  if (u >= 21) return [21, 50]
+  if (u >= 9) return [9, 20]
+  if (u >= 5) return [5, 8]
+  if (u === 4) return [4, 4]
+  if (u >= 2) return [2, 3]
+  return [0, 999]
+}
+
+function CompAnalysis({ proposal }) {
+  const pr = proposal.properties || {}
+  const [allComps, setAllComps] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [dateRange, setDateRange] = useState(730)
+  const [excluded, setExcluded] = useState(new Set())
+
+  const defaultRange = unitRangeFromSubType(pr.property_sub_type, pr.total_units)
+  const [minUnits, setMinUnits] = useState(defaultRange[0])
+  const [maxUnits, setMaxUnits] = useState(defaultRange[1])
+
+  const [market, setMarket] = useState(pr.market || '')
+  const [county, setCounty] = useState(pr.county || '')
+  const [subMarket, setSubMarket] = useState(pr.sub_market || '')
+  const [zip, setZip] = useState(pr.zip ? String(pr.zip) : '')
+  const [era, setEra] = useState(pr.year_built_era || '')
+
+  // comp table sorting
+  const [sortCol, setSortCol] = useState(null)
+  const [sortDir, setSortDir] = useState('desc')
+
+  useEffect(() => { fetchComps() }, [])
+
+  async function fetchComps() {
+    setLoading(true)
+    const { data } = await supabase.from('comps').select('*').order('sale_date', { ascending: false })
+    const enriched = (data || []).map(c => {
+      const xNoi = c.x_noi, xAgi = c.x_agi
+      const saleP = c.sale_price, listP = c.listing_price
+      const units = c.num_units, sf = c.building_sf
+      const noi = c.adv_noi, agi = c.adv_agi
+      const domToSale = daysBetween(c.listing_date, c.sale_date)
+      const domPending = daysBetween(c.listing_date, c.pending_date)
+      const domToToday = c.listing_date ? daysBetween(c.listing_date, new Date().toISOString()) : null
+      return {
+        ...c,
+        _activeDom: c.listing_date ? (c.pending_date ? domPending : domToToday) : null,
+        // Total DOM: listing → sale if sold, listing → today if still active/UC (cumulative)
+        _totalDom: domToSale || domToToday,
+        _escrow: daysBetween(c.pending_date, c.sale_date),
+        _soldPPU: (saleP && units) ? saleP / units : null,
+        _soldPSF: (saleP && sf) ? saleP / sf : null,
+        _soldCap: (!xNoi && noi && saleP) ? noi / saleP : null,
+        _soldGRM: (!xAgi && agi && saleP) ? saleP / agi : null,
+        _askPPU: (listP && units) ? listP / units : null,
+        _askPSF: (listP && sf) ? listP / sf : null,
+        _askCap: (!xNoi && noi && listP) ? noi / listP : null,
+        _askGRM: (!xAgi && agi && listP) ? listP / agi : null,
+      }
+    })
+    setAllComps(enriched)
+    setLoading(false)
+  }
+
+  const normStatus = s => {
+    if (!s) return s
+    const low = s.toLowerCase()
+    if (low === 'pending' || low === 'under contract') return 'Under Contract'
+    return s
+  }
+
+  // dropdown options from comps data
+  const counties = [...new Set(allComps.map(c => c.property_county).filter(Boolean))].sort()
+  const subMarkets = [...new Set(allComps.map(c => c.sub_market).filter(Boolean))].sort()
+  const zips = [...new Set(allComps.map(c => String(c.zip_code)).filter(v => v && v !== 'null'))].sort()
+  const eras = [...new Set(allComps.map(c => c.year_built_era).filter(Boolean))].sort()
+
+  // base-filtered comps (date + unit range)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - dateRange)
+
+  const baseFiltered = allComps.filter(c => {
+    const st = normStatus(c.status)
+    const refDate = st === 'Sold' ? parseDate(c.sale_date) : parseDate(c.listing_date)
+    if (refDate && refDate < cutoff) return false
+    const u = c.num_units
+    if (u != null && (u < minUnits || u > maxUnits)) return false
+    return true
+  })
+
+  const activeComps = baseFiltered.filter(c => !excluded.has(c.id))
+
+  function toggleExclude(id) {
+    setExcluded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+  function toggleAll() {
+    if (excluded.size === 0) setExcluded(new Set(baseFiltered.map(c => c.id)))
+    else setExcluded(new Set())
+  }
+
+  const colFilters = [
+    { label: 'Market', era: false, fn: c => c.market === market },
+    { label: 'Market', era: true, fn: c => c.market === market && c.year_built_era === era },
+    { label: 'County', era: false, fn: c => c.property_county === county },
+    { label: 'County', era: true, fn: c => c.property_county === county && c.year_built_era === era },
+    { label: 'Sub-Mkt', era: false, fn: c => c.sub_market === subMarket },
+    { label: 'Sub-Mkt', era: true, fn: c => c.sub_market === subMarket && c.year_built_era === era },
+    { label: 'Zip', era: false, fn: c => String(c.zip_code) === zip },
+    { label: 'Zip', era: true, fn: c => String(c.zip_code) === zip && c.year_built_era === era },
+  ]
+
+  function getColData(colFn, status) {
+    const set = activeComps.filter(c => normStatus(c.status) === status && colFn(c))
+    const isAsk = status !== 'Sold'
+    return {
+      count: set.length,
+      ppu: median(set.map(c => isAsk ? c._askPPU : c._soldPPU)),
+      psf: median(set.map(c => isAsk ? c._askPSF : c._soldPSF)),
+      cap: median(set.map(c => isAsk ? c._askCap : c._soldCap)),
+      grm: median(set.map(c => isAsk ? c._askGRM : c._soldGRM)),
+      activeDom: set.length ? Math.round(mean(set.map(c => c._activeDom))) : null,
+      totalDom: set.length ? Math.round(mean(set.map(c => c._totalDom))) : null,
+      escrow: set.length ? Math.round(mean(set.map(c => c._escrow))) : null,
+    }
+  }
+
+  const fmtC = v => v != null ? '$' + Math.round(v).toLocaleString() : 'No Data'
+  const fmtP = v => v != null ? (v * 100).toFixed(2) + '%' : 'No Data'
+  const fmtX = v => v != null ? v.toFixed(2) : 'No Data'
+  const fmtD = v => v != null ? Math.round(v) : 'No Data'
+  const fmtDate = v => {
+    if (!v) return '—'
+    const d = new Date(v)
+    if (isNaN(d)) return '—'
+    const dd = String(d.getDate()).padStart(2, '0')
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const yy = String(d.getFullYear()).slice(-2)
+    return `${mm}/${dd}/${yy}`
+  }
+
+  const ROW_GROUPS = [
+    { label: 'Property Count', key: 'count', fmt: v => v != null ? v : 0 },
+    { label: '$/Unit', key: 'ppu', fmt: fmtC },
+    { label: '$/SF', key: 'psf', fmt: fmtC },
+    { label: 'Cap Rate', key: 'cap', fmt: fmtP },
+    { label: 'GRM', key: 'grm', fmt: fmtX },
+    { label: 'Active DOM', key: 'activeDom', fmt: fmtD },
+    { label: 'Total DOM', key: 'totalDom', fmt: fmtD },
+    { label: 'Escrow Length', key: 'escrow', fmt: fmtD },
+  ]
+
+  // comp table sort
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(col); setSortDir('desc') }
+  }
+
+  const compTableData = [...baseFiltered].map(c => {
+    const st = normStatus(c.status)
+    const isSold = st === 'Sold'
+    return { ...c, _st: st, _isSold: isSold, _dispPPU: isSold ? c._soldPPU : c._askPPU, _dispPSF: isSold ? c._soldPSF : c._askPSF, _dispCap: isSold ? c._soldCap : c._askCap, _dispGRM: isSold ? c._soldGRM : c._askGRM }
+  })
+
+  if (sortCol) {
+    compTableData.sort((a, b) => {
+      let av = a[sortCol], bv = b[sortCol]
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number') return sortDir === 'asc' ? av - bv : bv - av
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
+    })
+  }
+
+  const hdrBg = '#f5f5f5'
+  const eraBg = '#E6F1FB'
+  const cellPad = '6px 8px'
+  const borderC = '0.5px solid rgba(0,0,0,0.1)'
+  const cellStyle = (isEra) => ({ padding: cellPad, textAlign: 'right', fontSize: 12, background: isEra ? eraBg : '#fff', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' })
+  const labelCell = { padding: cellPad, fontSize: 12, fontWeight: 500, background: '#fff', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }
+  const groupCell = { padding: '8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', background: '#f9f9f9', borderBottom: borderC, borderRight: borderC }
+  const sel = { padding: '6px 8px', border: '0.5px solid #ddd', borderRadius: 6, fontSize: 12 }
+
+  const compTh = (label, col) => (
+    <th onClick={() => toggleSort(col)} style={{ padding: cellPad, borderBottom: borderC, textAlign: col === 'property_name' || col === 'sub_market' || col === '_st' || col === 'year_built_era' ? 'left' : 'right', fontWeight: 500, fontSize: 11, color: sortCol === col ? '#185FA5' : '#888', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', resize: 'horizontal', minWidth: 50 }}>
+      {label}{sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+    </th>
+  )
+
+  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading comps...</div>
+
+  return (
+    <div>
+      {/* ── FILTER BAR ── */}
+      <div style={{ background: '#fff', borderRadius: 12, border: borderC, padding: '1rem', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Market</div>
+            <input value={market} onChange={e => setMarket(e.target.value)} style={{ width: 150, ...sel }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>County</div>
+            <select value={county} onChange={e => setCounty(e.target.value)} style={sel}>
+              <option value="">All</option>
+              {counties.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Sub-Market</div>
+            <select value={subMarket} onChange={e => setSubMarket(e.target.value)} style={sel}>
+              <option value="">All</option>
+              {subMarkets.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Zip</div>
+            <select value={zip} onChange={e => setZip(e.target.value)} style={sel}>
+              <option value="">All</option>
+              {zips.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Era</div>
+            <select value={era} onChange={e => setEra(e.target.value)} style={sel}>
+              <option value="">All</option>
+              {eras.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Date Range</div>
+            <select value={dateRange} onChange={e => setDateRange(Number(e.target.value))} style={sel}>
+              {DATE_RANGES.map(d => <option key={d.days} value={d.days}>{d.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Unit Range</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="number" value={minUnits} onChange={e => setMinUnits(Number(e.target.value) || 0)} style={{ width: 50, ...sel }} />
+              <span style={{ fontSize: 11, color: '#888' }}>–</span>
+              <input type="number" value={maxUnits} onChange={e => setMaxUnits(Number(e.target.value) || 999)} style={{ width: 50, ...sel }} />
+            </div>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: '#888', marginTop: 8 }}>
+          {baseFiltered.length} comps matched · {activeComps.length} included in stats
+        </div>
+      </div>
+
+      {/* ── STATS TABLE ── */}
+      <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto', marginBottom: 12 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={{ ...groupCell, width: 130, textAlign: 'left', position: 'sticky', left: 0, zIndex: 2, background: hdrBg }}>Market Stats</th>
+              {colFilters.map((col, i) => (
+                <th key={i} style={{ padding: cellPad, fontSize: 11, fontWeight: 600, textAlign: 'center', background: col.era ? eraBg : hdrBg, borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }}>
+                  {col.era ? col.label + '+Era' : col.label}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              <td style={{ padding: '3px 8px', fontSize: 10, color: '#888', background: '#fff', borderBottom: borderC, borderRight: borderC, position: 'sticky', left: 0, zIndex: 2 }}></td>
+              {colFilters.map((col, i) => {
+                const geoVal = col.label === 'Market' ? market : col.label === 'County' ? county : col.label === 'Sub-Mkt' ? subMarket : zip
+                return (
+                  <td key={i} style={{ padding: '3px 8px', fontSize: 10, color: '#888', textAlign: 'center', background: col.era ? eraBg : '#fff', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }}>
+                    {col.era ? (era || 'All Eras') : (geoVal || '—')}
+                  </td>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {ROW_GROUPS.map(group => (
+              [
+                <tr key={group.label + '-hdr'}>
+                  <td colSpan={colFilters.length + 1} style={groupCell}>{group.label}</td>
+                </tr>,
+                ...STAT_STATUSES.map(status => {
+                  // Escrow not applicable for Active / Under Contract — skip the row entirely
+                  if (group.key === 'escrow' && status !== 'Sold') return null
+                  return (
+                    <tr key={group.label + '-' + status}>
+                      <td style={{ ...labelCell, paddingLeft: 16, position: 'sticky', left: 0, zIndex: 1, background: '#fff' }}>{status}</td>
+                      {colFilters.map((col, ci) => {
+                        const d = getColData(col.fn, status)
+                        const v = d[group.key]
+                        const display = group.key === 'count' ? (v || 0) : group.fmt(v)
+                        return <td key={ci} style={cellStyle(col.era)}>{display}</td>
+                      })}
+                    </tr>
+                  )
+                }).filter(Boolean)
+              ]
+            )).flat()}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── COMP TABLE ── */}
+      <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto' }}>
+        <div style={{ padding: '10px 14px', borderBottom: borderC, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: '#666' }}>COMPS ({baseFiltered.length})</span>
+          <button onClick={toggleAll} style={{ fontSize: 11, padding: '3px 8px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>
+            {excluded.size === 0 ? 'Deselect all' : 'Select all'}
+          </button>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+          <thead>
+            <tr style={{ background: '#f9f9f9' }}>
+              <th style={{ padding: cellPad, borderBottom: borderC, width: 30 }}></th>
+              {compTh('Status', '_st')}
+              {compTh('Property', 'property_name')}
+              {compTh('Sub-Market', 'sub_market')}
+              {compTh('Units', 'num_units')}
+              {compTh('Era', 'year_built_era')}
+              {compTh('Listing Date', 'listing_date')}
+              {compTh('Pending Date', 'pending_date')}
+              {compTh('Sale Date', 'sale_date')}
+              {compTh('$/Unit', '_dispPPU')}
+              {compTh('$/SF', '_dispPSF')}
+              {compTh('Cap', '_dispCap')}
+              {compTh('GRM', '_dispGRM')}
+              {compTh('Active DOM', '_activeDom')}
+              {compTh('Total DOM', '_totalDom')}
+              {compTh('Escrow', '_escrow')}
+            </tr>
+          </thead>
+          <tbody>
+            {compTableData.length === 0 && (
+              <tr><td colSpan={16} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match the current filters.</td></tr>
+            )}
+            {compTableData.map(c => {
+              const isExcl = excluded.has(c.id)
+              const stStyle = c._st === 'Sold' ? { bg: '#E1F5EE', color: '#085041' } : c._st === 'Active' ? { bg: '#E6F1FB', color: '#0C447C' } : { bg: '#FAEEDA', color: '#633806' }
+              return (
+                <tr key={c.id} style={{ opacity: isExcl ? 0.4 : 1, background: isExcl ? '#fafafa' : '#fff' }}>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
+                    <input type="checkbox" checked={!isExcl} onChange={() => toggleExclude(c.id)} style={{ cursor: 'pointer' }} />
+                  </td>
+                  <td style={{ padding: cellPad, borderBottom: borderC }}>
+                    <span style={{ background: stStyle.bg, color: stStyle.color, padding: '1px 7px', borderRadius: 4, fontSize: 11, fontWeight: 500 }}>{c._st}</span>
+                  </td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.property_name || c.sale_name || '—'}
+                  </td>
+                  <td style={{ padding: cellPad, borderBottom: borderC }}>{c.sub_market || '—'}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c.num_units || '—'}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, fontSize: 11 }}>{c.year_built_era || '—'}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtDate(c.listing_date)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtDate(c.pending_date)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtDate(c.sale_date)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtC(c._dispPPU)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtC(c._dispPSF)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtP(c._dispCap)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{fmtX(c._dispGRM)}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c._activeDom != null ? c._activeDom : '—'}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c._totalDom != null ? c._totalDom : '—'}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c._escrow != null ? c._escrow : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

@@ -60,10 +60,17 @@ export default function CompDatabase() {
   const saleP = c.sale_price, listP = c.listing_price, origP = c.original_listing_price
   const units = c.num_units, sf = c.building_sf
   const agi = c.adv_agi, noi = c.adv_noi
-  const dom = daysBetween(c.listing_date, c.sale_date)
+  const domTotal = daysBetween(c.listing_date, c.sale_date)
+  const domPending = daysBetween(c.listing_date, c.pending_date)
+  const domToday = c.listing_date ? daysBetween(c.listing_date, new Date().toISOString()) : null
   return {
     ...c,
-    _dom: dom,
+    // Active DOM: listing → today, capped at pending date if exists
+    _activeDom: c.listing_date ? (c.pending_date ? domPending : domToday) : null,
+    // Total DOM: listing → sale
+    _totalDom: domTotal,
+    // Escrow Length: pending → sale
+    _escrow: daysBetween(c.pending_date, c.sale_date),
     _soldPPU: (saleP && units) ? saleP / units : null,
     _soldPSF: (saleP && sf) ? saleP / sf : null,
     _soldGRM: (!xAgi && agi && saleP) ? saleP / agi : null,
@@ -128,7 +135,9 @@ async function loadComps() {
     medPPU: median(sold.map(c => c._soldPPU)),
     medGRM: median(sold.map(c => c._soldGRM)),
     medCap: median(sold.map(c => c._soldCap)),
-    medDOM: median(sold.map(c => c._dom)),
+    medActiveDom: median(sold.map(c => c._activeDom)),
+    medTotalDom: median(sold.map(c => c._totalDom)),
+    medEscrow: median(sold.map(c => c._escrow)),
   }
 
   const submarkets = ['All', ...new Set(comps.map(c => c.sub_market).filter(Boolean))].sort()
@@ -182,7 +191,9 @@ async function loadComps() {
               { l: 'Median $/unit', v: stats.medPPU ? fC(stats.medPPU) : '—' },
               { l: 'Median GRM', v: stats.medGRM ? fX(stats.medGRM) : '—' },
               { l: 'Median cap', v: stats.medCap ? fP(stats.medCap) : '—' },
-              { l: 'Median DOM', v: stats.medDOM != null ? Math.round(stats.medDOM) + 'd' : '—' },
+              { l: 'Med Active DOM', v: stats.medActiveDom != null ? Math.round(stats.medActiveDom) + 'd' : '—' },
+              { l: 'Med Total DOM', v: stats.medTotalDom != null ? Math.round(stats.medTotalDom) + 'd' : '—' },
+              { l: 'Med Escrow', v: stats.medEscrow != null ? Math.round(stats.medEscrow) + 'd' : '—' },
             ].map(s => (
               <div key={s.l} style={{ background: '#fff', borderRadius: 8, padding: '10px 12px', border: '0.5px solid rgba(0,0,0,0.08)' }}>
                 <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>{s.l}</div>
@@ -205,7 +216,7 @@ async function loadComps() {
           </div>
 
           <div style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1000 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1400 }}>
               <thead>
                 <tr style={{ background: '#f5f5f5', borderBottom: '0.5px solid rgba(0,0,0,0.1)' }}>
                   {th('Property', 'property_name')}
@@ -213,18 +224,22 @@ async function loadComps() {
                   {th('Sub-market', 'sub_market')}
                   {th('Units', 'num_units')}
                   {th('Era', 'year_built_era')}
-                  {th('Sale date', 'sale_date')}
+                  {th('Listing Date', 'listing_date')}
+                  {th('Pending Date', 'pending_date')}
+                  {th('Sale Date', 'sale_date')}
                   {th('Sale price', 'sale_price')}
                   {th('Sold $/unit', '_soldPPU')}
                   {th('GRM', '_soldGRM')}
                   {th('Cap', '_soldCap')}
-                  {th('DOM', '_dom')}
+                  {th('Active DOM', '_activeDom')}
+                  {th('Total DOM', '_totalDom')}
+                  {th('Escrow', '_escrow')}
                   {th('Terms', 'sales_terms')}
                 </tr>
               </thead>
               <tbody>
                 {sorted.length === 0 && (
-                  <tr><td colSpan={12} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match filters</td></tr>
+                  <tr><td colSpan={16} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match filters</td></tr>
                 )}
                 {sorted.map((c, i) => {
                   const st = STATUS_STYLE[c.status] || { bg: '#f5f5f5', color: '#555' }
@@ -235,12 +250,16 @@ async function loadComps() {
                       <td style={{ padding: '8px 10px', color: '#555' }}>{c.sub_market || '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.num_units || '—'}</td>
                       <td style={{ padding: '8px 10px', color: '#555' }}>{c.year_built_era || '—'}</td>
+                      <td style={{ padding: '8px 10px', color: '#555' }}>{fD(c.listing_date)}</td>
+                      <td style={{ padding: '8px 10px', color: '#555' }}>{fD(c.pending_date)}</td>
                       <td style={{ padding: '8px 10px', color: '#555' }}>{fD(c.sale_date)}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.sale_price ? fC(c.sale_price) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._soldPPU ? fC(c._soldPPU) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.x_agi ? <span style={{ color: '#999', fontSize: 11 }}>N/A</span> : (c._soldGRM ? fX(c._soldGRM) : '—')}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.x_noi ? <span style={{ color: '#999', fontSize: 11 }}>N/A</span> : (c._soldCap ? fP(c._soldCap) : '—')}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._dom != null ? c._dom + 'd' : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._activeDom != null ? c._activeDom + 'd' : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._totalDom != null ? c._totalDom + 'd' : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._escrow != null ? c._escrow + 'd' : '—'}</td>
                       <td style={{ padding: '8px 10px', color: '#555' }}>{c.sales_terms || '—'}</td>
                     </tr>
                   )
