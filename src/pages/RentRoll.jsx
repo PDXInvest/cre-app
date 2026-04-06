@@ -79,7 +79,7 @@ export default function RentRoll({ proposal }) {
     if (units.length > 0) {
       const records = units.map((u, i) => {
         const { id, _isNew, created_at, updated_at, ...rest } = u
-        return { ...rest, proposal_id: proposal.id, sort_order: i }
+        return { ...rest, proposal_id: proposal.id, sort_order: i, underwritten_rent: uwRent(u), underwritten_rubs: uwRubs(u) }
       })
       const { error } = await supabase.from('rent_roll_units').insert(records)
       if (error) { console.error(error); setMsg('Save error'); setSaving(false); return }
@@ -94,10 +94,15 @@ export default function RentRoll({ proposal }) {
   const totalUnits = units.length
   const occupied = units.filter(u => u.status === 'Current').length
   const vacant = units.filter(u => u.status === 'Vacant').length
+  // UW Rent/RUBS auto-calculated: current rent if occupied, market rent if vacant
+  const uwRent = u => u.status === 'Vacant' ? (Number(u.market_rent) || 0) : (Number(u.actual_rent) || 0)
+  const uwRubs = u => u.status === 'Vacant' ? (Number(u.market_rubs) || 0) : (Number(u.current_rubs) || 0)
+
   const totalActualRent = units.reduce((s, u) => s + (Number(u.actual_rent) || 0), 0)
   const totalMarketRent = units.reduce((s, u) => s + (Number(u.market_rent) || 0), 0)
   const totalRubs = units.reduce((s, u) => s + (Number(u.current_rubs) || 0), 0)
-  const totalUwRent = units.reduce((s, u) => s + (Number(u.underwritten_rent) || 0), 0)
+  const totalUwRent = units.reduce((s, u) => s + uwRent(u), 0)
+  const totalUwRubs = units.reduce((s, u) => s + uwRubs(u), 0)
   const avgRent = totalUnits ? totalActualRent / totalUnits : 0
   const occupancy = totalUnits ? (occupied / totalUnits * 100).toFixed(1) : 0
 
@@ -108,7 +113,7 @@ export default function RentRoll({ proposal }) {
   }
 
   const displayUnits = sortCol
-    ? [...units].map((u, i) => ({ ...u, _idx: i })).sort((a, b) => {
+    ? [...units].map((u, i) => ({ ...u, _idx: i, _uwRent: uwRent(u), _uwRubs: uwRubs(u) })).sort((a, b) => {
         let av = a[sortCol], bv = b[sortCol]
         if (av == null && bv == null) return 0
         if (av == null) return 1
@@ -212,8 +217,8 @@ export default function RentRoll({ proposal }) {
               {th('Pre-Paid', 'pre_paid_rent', 55)}
               {th('Market Rent', 'market_rent', 70)}
               {th('Mkt RUBS', 'market_rubs', 55)}
-              {th('UW Rent', 'underwritten_rent', 65)}
-              {th('UW RUBS', 'underwritten_rubs', 55)}
+              {th('UW Rent', '_uwRent', 65)}
+              {th('UW RUBS', '_uwRubs', 55)}
               {th('Stab Mo', 'stabilized_month', 50)}
               {th('Notes', 'notes', 80)}
               <th style={{ padding: cellPad, borderBottom: borderC, width: 30 }}></th>
@@ -245,8 +250,8 @@ export default function RentRoll({ proposal }) {
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'pre_paid_rent', 'number')}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'market_rent', 'number')}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'market_rubs', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'underwritten_rent', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'underwritten_rubs', 'number')}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right', background: '#E1F5EE', fontSize: 11 }}>{fmt$(uwRent(units[i]))}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right', background: '#E1F5EE', fontSize: 11 }}>{fmt$(uwRubs(units[i]))}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'stabilized_month', 'number')}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'notes')}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>

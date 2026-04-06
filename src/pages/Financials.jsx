@@ -51,6 +51,7 @@ const fmt$ = v => { const n = Number(v); return isNaN(n) || n === 0 ? '—' : (n
 
 export default function Financials({ proposal }) {
   const [data, setData] = useState(null)
+  const [rentRollUnits, setRentRollUnits] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -71,11 +72,10 @@ export default function Financials({ proposal }) {
 
   async function loadData() {
     setLoading(true)
-    const { data: row } = await supabase
-      .from('proposal_financials')
-      .select('*')
-      .eq('proposal_id', proposal.id)
-      .maybeSingle()
+    const [{ data: row }, { data: rrUnits }] = await Promise.all([
+      supabase.from('proposal_financials').select('*').eq('proposal_id', proposal.id).maybeSingle(),
+      supabase.from('rent_roll_units').select('*').eq('proposal_id', proposal.id),
+    ])
     if (row) {
       setData(row)
     } else {
@@ -83,6 +83,7 @@ export default function Financials({ proposal }) {
       const { data: created } = await supabase.from('proposal_financials').insert(empty).select().single()
       setData(created)
     }
+    setRentRollUnits(rrUnits || [])
     setLoading(false)
   }
 
@@ -109,14 +110,27 @@ export default function Financials({ proposal }) {
     }))
   }
 
+  // ── Rent Roll → Scheduled column link ──
+  const rrTotalActual = rentRollUnits.reduce((s, u) => s + (Number(u.actual_rent) || 0), 0)
+  const rrTotalMarket = rentRollUnits.reduce((s, u) => s + (Number(u.market_rent) || 0), 0)
+  const rrTotalRubs = rentRollUnits.reduce((s, u) => s + (Number(u.current_rubs) || 0), 0)
+  const rrAnnual = {
+    collected_rent: rrTotalActual * 12,
+    market_rent: rrTotalMarket * 12,
+    loss_to_lease: (rrTotalActual - rrTotalMarket) * 12,
+    rubs: rrTotalRubs * 12,
+  }
+  const isRentRollLinked = (period, code) => period === 'scheduled' && rrAnnual[code] != null && rentRollUnits.length > 0
+
   // ── Annual income statement helpers ──
   function getVal(period, code) {
-    // T-12 column is auto-calculated from monthly data
     if (period === 't12') return t12MonthlyTotal(code) || ''
+    if (isRentRollLinked(period, code)) return rrAnnual[code] || ''
     return data?.income_statement?.[period]?.[code] ?? ''
   }
   function setVal(period, code, value) {
-    if (period === 't12') return // T-12 is read-only, driven by monthly
+    if (period === 't12') return
+    if (isRentRollLinked(period, code)) return
     setData(prev => {
       const is = { ...(prev.income_statement || {}) }
       is[period] = { ...(is[period] || {}), [code]: value === '' ? null : Number(value) }
@@ -124,6 +138,7 @@ export default function Financials({ proposal }) {
     })
   }
   const isT12 = p => p === 't12'
+  const isReadOnly = (p, code) => isT12(p) || isRentRollLinked(p, code)
 
   // ── Custom line items per section ──
   function getCustomItems(sectionKey) {
@@ -179,7 +194,8 @@ export default function Financials({ proposal }) {
   function sumCustom(period, sectionKey) {
     return getCustomItems(sectionKey).reduce((s, item) => s + (Number(getVal(period, item.code)) || 0), 0)
   }
-  function totalRentalRevenue(p) { return sumItems(p, REVENUE_ITEMS) + sumCustom(p, 'revenue') }
+  // Total Rental Revenue = Collected Rent only (Market Rent, L2L, Vacancy, Concessions are informational)
+  function totalRentalRevenue(p) { return (Number(getVal(p, 'collected_rent')) || 0) + sumCustom(p, 'revenue') }
   function totalOtherIncome(p) { return sumItems(p, OTHER_INCOME_ITEMS) + sumCustom(p, 'other_income') }
   function grossRevenue(p) { return totalRentalRevenue(p) + totalOtherIncome(p) }
   function genVacancy(p) { return Number(getVal(p, '_gen_vacancy')) || 0 }
@@ -196,6 +212,8 @@ export default function Financials({ proposal }) {
   function sumMonthCustom(monthKey, sectionKey) {
     return getCustomItems(sectionKey).reduce((s, item) => s + (Number(getMonthVal(monthKey, item.code)) || 0), 0)
   }
+  // Monthly Total Rental Revenue = collected_rent only
+  function monthlyTotalRentalRevenue(mk) { return (Number(getMonthVal(mk, 'collected_rent')) || 0) + sumMonthCustom(mk, 'revenue') }
 
   // ── Get T-12 month keys based on stored end month ──
   function getT12MonthKeys() {
@@ -250,10 +268,16 @@ export default function Financials({ proposal }) {
   const tabBtn = (active) => ({ padding: '6px 14px', fontSize: 12, fontWeight: 500, border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer', background: active ? '#fff' : 'transparent', color: active ? '#111' : '#888', borderBottom: active ? '2px solid #111' : 'none' })
 
   // Cell renderer: read-only computed value for T-12, editable input for other periods
+  // Cell renderer: read-only for T-12 and rent-roll-linked, editable for others
+  const rrBg = '#E1F5EE'
   const cellBg = p => isT12(p) ? t12Bg : isProj(p) ? '#F8F7FF' : 'transparent'
-  const valCell = (p, code) => isT12(p)
-    ? <td key={p} style={{ padding: cellPad, textAlign: 'right', fontSize: 12, background: t12Bg, borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap', color: '#333' }}>{fmt$(getVal(p, code))}</td>
-    : <td key={p} style={inputCell(p)}><input type="number" value={getVal(p, code)} onChange={e => setVal(p, code, e.target.value)} style={numInput} placeholder="0" /></td>
+  const valCell = (p, code) => {
+    if (isReadOnly(p, code)) {
+      const bg = isT12(p) ? t12Bg : isRentRollLinked(p, code) ? rrBg : '#f5f5f5'
+      return <td key={p} style={{ padding: cellPad, textAlign: 'right', fontSize: 12, background: bg, borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap', color: '#333' }} title={isRentRollLinked(p, code) ? 'From rent roll (annualized)' : undefined}>{fmt$(getVal(p, code))}</td>
+    }
+    return <td key={p} style={inputCell(p)}><input type="number" value={getVal(p, code)} onChange={e => setVal(p, code, e.target.value)} style={numInput} placeholder="0" /></td>
+  }
 
   // Custom row rendering for annual view
   const customRowsAnnual = (sectionKey) => (
@@ -451,8 +475,8 @@ export default function Financials({ proposal }) {
               {customRowsMonthly('revenue')}
               <tr>
                 <td style={{ ...totalLabelStyle, paddingLeft: 12, position: 'sticky', left: 0, zIndex: 1, fontSize: 11 }}>Total Rental Revenue</td>
-                {t12Months.map(mk => <td key={mk} style={totalCellStyle(mk)}>{fmt$(sumMonthItems(mk, REVENUE_ITEMS) + sumMonthCustom(mk, 'revenue'))}</td>)}
-                <td style={{ ...totalCellStyle('t12'), background: '#E6F1FB' }}>{fmt$([...REVENUE_ITEMS, ...getCustomItems('revenue')].reduce((s, i) => s + t12MonthlyTotal(i.code), 0))}</td>
+                {t12Months.map(mk => <td key={mk} style={totalCellStyle(mk)}>{fmt$(monthlyTotalRentalRevenue(mk))}</td>)}
+                <td style={{ ...totalCellStyle('t12'), background: '#E6F1FB' }}>{fmt$(t12Months.reduce((s, mk) => s + monthlyTotalRentalRevenue(mk), 0))}</td>
               </tr>
 
               {/* OTHER INCOME */}
@@ -500,13 +524,14 @@ export default function Financials({ proposal }) {
               <tr>
                 <td style={{ ...totalLabelStyle, position: 'sticky', left: 0, zIndex: 1, fontSize: 12 }}>NET OPERATING INCOME</td>
                 {t12Months.map(mk => {
-                  const rev = sumMonthItems(mk, REVENUE_ITEMS) + sumMonthCustom(mk, 'revenue') + sumMonthItems(mk, OTHER_INCOME_ITEMS) + sumMonthCustom(mk, 'other_income')
+                  const rev = monthlyTotalRentalRevenue(mk) + sumMonthItems(mk, OTHER_INCOME_ITEMS) + sumMonthCustom(mk, 'other_income')
                   const exp = sumMonthItems(mk, EXPENSE_ITEMS) + sumMonthCustom(mk, 'expense')
                   const n = rev - exp
                   return <td key={mk} style={{ ...totalCellStyle, fontSize: 11, color: n >= 0 ? '#085041' : '#791F1F' }}>{fmt$(n)}</td>
                 })}
                 <td style={{ ...totalCellStyle('t12'), background: '#E6F1FB', fontSize: 12 }}>{fmt$(
-                  [...REVENUE_ITEMS, ...getCustomItems('revenue'), ...OTHER_INCOME_ITEMS, ...getCustomItems('other_income')].reduce((s, i) => s + t12MonthlyTotal(i.code), 0) -
+                  t12Months.reduce((s, mk) => s + monthlyTotalRentalRevenue(mk), 0) +
+                  [...OTHER_INCOME_ITEMS, ...getCustomItems('other_income')].reduce((s, i) => s + t12MonthlyTotal(i.code), 0) -
                   [...EXPENSE_ITEMS, ...getCustomItems('expense')].reduce((s, i) => s + t12MonthlyTotal(i.code), 0)
                 )}</td>
               </tr>
