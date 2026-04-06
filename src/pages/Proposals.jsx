@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import Papa from 'papaparse'
+import RentRoll from './RentRoll'
 
 const STAGES = ['Prospect', 'Proposal', 'Exclusive Rep', 'Active', 'Under Contract', 'Sold', 'Lost']
 const STAGE_STYLE = {
@@ -417,7 +418,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       {msg && <div style={{ padding: '8px 12px', background: '#EAF3DE', color: '#27500A', borderRadius: 8, fontSize: 12, marginBottom: '1rem' }}>{msg}</div>}
 
       <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem', borderBottom: '0.5px solid rgba(0,0,0,0.1)', paddingBottom: 0 }}>
-        {['overview', 'due diligence', 'comp analysis'].map(t => (
+        {['overview', 'due diligence', 'comp analysis', 'rent roll', 'financials'].map(t => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '8px 14px', borderRadius: '8px 8px 0 0', fontSize: 13, fontWeight: 500, border: 'none', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#111' : '#888', cursor: 'pointer', borderBottom: tab === t ? '2px solid #111' : 'none' }}>
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
@@ -479,6 +480,17 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
 
       {tab === 'comp analysis' && (
         <CompAnalysis proposal={proposal} />
+      )}
+
+      {tab === 'rent roll' && (
+        <RentRoll proposal={proposal} />
+      )}
+
+      {tab === 'financials' && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '3rem', textAlign: 'center', color: '#888' }}>
+          <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 8, color: '#333' }}>Financials coming next</p>
+          <p style={{ fontSize: 13 }}>Income statement, T-12 monthly detail, and growth assumptions will go here.</p>
+        </div>
       )}
     </div>
   )
