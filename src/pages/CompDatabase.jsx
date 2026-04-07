@@ -373,6 +373,7 @@ async function loadComps() {
                   {th('Escrow', '_escrow')}
                   {th('Terms', 'sales_terms')}
                   <th style={{ padding: '8px 10px', width: 40 }}></th>
+                </tr>
               </thead>
               <tbody>
                 {sorted.length === 0 && (
@@ -401,6 +402,7 @@ async function loadComps() {
                       <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                         <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#185FA5', padding: '2px 4px' }} title="Edit comp">✎</button>
                       </td>
+                    </tr>
                   )
                 })}
               </tbody>

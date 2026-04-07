@@ -1110,6 +1110,7 @@ function CompAnalysis({ proposal }) {
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
                     <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#185FA5', padding: '1px 3px' }} title="Edit comp">✎</button>
                   </td>
+                </tr>
               )
             })}
           </tbody>
