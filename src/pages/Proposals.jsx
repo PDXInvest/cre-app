@@ -632,8 +632,17 @@ function CompAnalysis({ proposal }) {
 
   async function fetchComps() {
     setLoading(true)
-    const { data } = await supabase.from('comps').select('*').order('sale_date', { ascending: false })
-    const enriched = (data || []).map(c => {
+    let all = [], from = 0, pageSize = 1000, done = false
+    while (!done) {
+      const { data } = await supabase.from('comps').select('*')
+        .order('sale_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1)
+      all = all.concat(data || [])
+      if (!data || data.length < pageSize) done = true
+      else from += pageSize
+    }
+    const enriched = all.map(c => {
       const xNoi = c.x_noi, xAgi = c.x_agi
       const saleP = c.sale_price, listP = c.listing_price
       const units = c.num_units, sf = c.building_sf
@@ -680,6 +689,7 @@ function CompAnalysis({ proposal }) {
 
   const baseFiltered = allComps.filter(c => {
     const st = normStatus(c.status)
+    if (!['Active', 'Under Contract', 'Sold'].includes(st)) return false
     const refDate = st === 'Sold' ? parseDate(c.sale_date) : parseDate(c.listing_date)
     if (refDate && refDate < cutoff) return false
     const u = c.num_units

@@ -84,9 +84,18 @@ export default function CompDatabase() {
 
 async function loadComps() {
   setLoading(true)
-  const { data, error } = await supabase.from('comps').select('*').order('sale_date', { ascending: false })
-  if (error) { console.error(error); setMsg('Error loading comps') }
-  else setComps((data || []).map(addCalcFields))
+  let all = [], from = 0, pageSize = 1000, done = false
+  while (!done) {
+    const { data, error } = await supabase.from('comps').select('*')
+      .order('sale_date', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) { console.error(error); setMsg('Error loading comps'); break }
+    all = all.concat(data || [])
+    if (!data || data.length < pageSize) done = true
+    else from += pageSize
+  }
+  setComps(all.map(addCalcFields))
   setLoading(false)
 }
 
