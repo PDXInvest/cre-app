@@ -45,17 +45,22 @@ export default function Proposals() {
 
   async function importProperties(text) {
   setImporting(true)
-  const { data: rows } = Papa.parse(text, { header: true, skipEmptyLines: true })
+  // Strip BOM and normalize
+  const clean = text.replace(/^\uFEFF/, '')
+  const { data: rows } = Papa.parse(clean, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() })
   
-  // Deduplicate by Property ID — keep last occurrence
+  // Deduplicate by Property ID — handle both old and new column names
   const seen = new Map()
-  rows.filter(r => r['Property ID']).forEach(r => seen.set(r['Property ID'], r))
+  rows.filter(r => r['Property: ID'] || r['Property ID']).forEach(r => seen.set(r['Property: ID'] || r['Property ID'], r))
   const unique = Array.from(seen.values())
   const dupes = rows.length - unique.length
 
+  // Helper: try new column name first, fall back to old
+  const g = (r, ...keys) => { for (const k of keys) { if (r[k] != null && r[k] !== '') return r[k] } return null }
+
   const records = unique.map(r => ({
-    sf_property_id: r['Property ID'],
-    property_name: r['Property Name'],
+    sf_property_id: g(r, 'Property: ID', 'Property ID'),
+    property_name: g(r, 'Property: Property Name', 'Property Name'),
     street: r['Street'],
     city: r['City'],
     state: r['State/Province'],
@@ -68,7 +73,7 @@ export default function Proposals() {
     property_sub_type: r['Property Sub Type'],
     property_class: r['Property Class'],
     owner_llc: r['Owner LLC'],
-    owner_contact: r['Owner/Landlord Contact: Full Name'],
+    owner_contact: g(r, 'Owner/Landlord Contact', 'Owner/Landlord Contact: Full Name'),
     last_sale_date: r['Last Sale Date'] || null,
     last_sale_amount: parseFloat(r['Last Sale Amount']) || null,
     last_sale_price_per_unit: parseFloat(r['Last Sale Price (per Unit)']) || null,
