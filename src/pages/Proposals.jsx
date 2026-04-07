@@ -51,6 +51,7 @@ export default function Proposals() {
   const seen = new Map()
   rows.filter(r => r['Property ID']).forEach(r => seen.set(r['Property ID'], r))
   const unique = Array.from(seen.values())
+  const dupes = rows.length - unique.length
 
   const records = unique.map(r => ({
     sf_property_id: r['Property ID'],
@@ -82,10 +83,16 @@ export default function Proposals() {
     year_built_era: r['Year Built Era'],
   }))
 
-  const { error } = await supabase.from('properties').upsert(records, { onConflict: 'sf_property_id' })
-  if (error) { console.error(error); setMsg('Import error'); setImporting(false); return }
-  setMsg(`${records.length} properties imported`)
-  setTimeout(() => setMsg(''), 4000)
+  // Chunk in batches of 500
+  const chunkSize = 500
+  for (let i = 0; i < records.length; i += chunkSize) {
+    const chunk = records.slice(i, i + chunkSize)
+    setMsg(`Importing properties... ${Math.min(i + chunkSize, records.length).toLocaleString()} / ${records.length.toLocaleString()}`)
+    const { error } = await supabase.from('properties').upsert(chunk, { onConflict: 'sf_property_id' })
+    if (error) { console.error(error); setMsg(`Import error at row ${i}`); setImporting(false); return }
+  }
+  setMsg(`${records.length.toLocaleString()} properties imported` + (dupes ? ` (${dupes.toLocaleString()} duplicates skipped)` : ''))
+  setTimeout(() => setMsg(''), 6000)
   setShowPropImport(false)
   setPropPasteText('')
   setImporting(false)
