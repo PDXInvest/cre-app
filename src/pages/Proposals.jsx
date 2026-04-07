@@ -625,6 +625,7 @@ function CompAnalysis({ proposal }) {
   const [loading, setLoading] = useState(true)
   const [dateRange, setDateRange] = useState(730)
   const [excluded, setExcluded] = useState(new Set())
+  const [excludedMktg, setExcludedMktg] = useState(new Set())
 
   const defaultRange = unitRangeFromSubType(pr.property_sub_type, pr.total_units)
   const [minUnits, setMinUnits] = useState(defaultRange[0])
@@ -639,6 +640,7 @@ function CompAnalysis({ proposal }) {
   // comp table sorting
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('desc')
+  const [editComp, setEditComp] = useState(null)
 
   useEffect(() => { fetchComps() }, [])
 
@@ -710,13 +712,91 @@ function CompAnalysis({ proposal }) {
   })
 
   const activeComps = baseFiltered.filter(c => !excluded.has(c.id))
+  const marketingComps = baseFiltered.filter(c => !excludedMktg.has(c.id))
 
   function toggleExclude(id) {
     setExcluded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   }
+  function toggleExcludeMktg(id) {
+    setExcludedMktg(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
   function toggleAll() {
     if (excluded.size === 0) setExcluded(new Set(baseFiltered.map(c => c.id)))
     else setExcluded(new Set())
+  }
+  function toggleAllMktg() {
+    if (excludedMktg.size === 0) setExcludedMktg(new Set(baseFiltered.map(c => c.id)))
+    else setExcludedMktg(new Set())
+  }
+
+  // ── Comp edit ──
+  const EDIT_FIELDS = [
+    { section: 'Property', fields: [
+      { key: 'property_name', label: 'Property Name', type: 'text' },
+      { key: 'sale_name', label: 'Sale Name', type: 'text' },
+      { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Pending', 'Under Contract', 'Sold', 'CAN/EXP/WTH'] },
+      { key: 'property_sub_type', label: 'Property Type', type: 'text' },
+      { key: 'year_built', label: 'Year Built', type: 'number' },
+      { key: 'year_built_era', label: 'Year Built Era', type: 'text' },
+    ]},
+    { section: 'Location', fields: [
+      { key: 'market', label: 'Market', type: 'text' },
+      { key: 'sub_market', label: 'Sub-Market', type: 'text' },
+      { key: 'property_county', label: 'County', type: 'text' },
+      { key: 'zip_code', label: 'Zip Code', type: 'text' },
+    ]},
+    { section: 'Size', fields: [
+      { key: 'num_units', label: '# of Units', type: 'number' },
+      { key: 'building_sf', label: 'Building SF', type: 'number' },
+    ]},
+    { section: 'Dates', fields: [
+      { key: 'listing_date', label: 'Listing Date', type: 'date' },
+      { key: 'pending_date', label: 'Pending Date', type: 'date' },
+      { key: 'sale_date', label: 'Sale Date', type: 'date' },
+      { key: 'can_exp_wth_date', label: 'CAN/EXP/WTH Date', type: 'date' },
+    ]},
+    { section: 'Financial', fields: [
+      { key: 'original_listing_price', label: 'Original Listing Price', type: 'number' },
+      { key: 'listing_price', label: 'Listing Price', type: 'number' },
+      { key: 'sale_price', label: 'Sale Price', type: 'number' },
+      { key: 'loan_amount', label: 'Loan Amount', type: 'number' },
+      { key: 'sales_terms', label: 'Sales Terms', type: 'text' },
+    ]},
+    { section: 'Analysis', fields: [
+      { key: 'adv_agi', label: 'AGI', type: 'number' },
+      { key: 'adv_noi', label: 'NOI', type: 'number' },
+      { key: 'x_agi', label: 'Exclude AGI', type: 'checkbox' },
+      { key: 'x_noi', label: 'Exclude NOI', type: 'checkbox' },
+      { key: 'owner_occ_purchase', label: 'Owner Occupied', type: 'checkbox' },
+    ]},
+  ]
+  const editInputStyle = { width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12 }
+  function openEdit(comp) {
+    const form = {}
+    EDIT_FIELDS.forEach(s => s.fields.forEach(f => {
+      const v = comp[f.key]
+      if (f.type === 'date' && v) { try { form[f.key] = new Date(v).toISOString().split('T')[0] } catch { form[f.key] = v || '' } }
+      else if (f.type === 'checkbox') { form[f.key] = !!v }
+      else { form[f.key] = v ?? '' }
+    }))
+    form._id = comp.id; form._sale_id = comp.sale_id
+    setEditComp(form)
+  }
+  function updateEditField(key, value) { setEditComp(prev => ({ ...prev, [key]: value })) }
+  async function saveEdit() {
+    if (!editComp) return
+    const updates = {}
+    EDIT_FIELDS.forEach(s => s.fields.forEach(f => {
+      let v = editComp[f.key]
+      if (f.type === 'number') v = v === '' ? null : Number(v)
+      else if (f.type === 'date') v = v || null
+      else if (f.type === 'checkbox') v = !!v
+      updates[f.key] = v
+    }))
+    const { error } = await supabase.from('comps').update(updates).eq('id', editComp._id)
+    if (error) { console.error(error); return }
+    setEditComp(null)
+    fetchComps()
   }
 
   const colFilters = [
@@ -812,6 +892,43 @@ function CompAnalysis({ proposal }) {
 
   return (
     <div>
+      {/* ── EDIT MODAL ── */}
+      {editComp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setEditComp(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 640, maxHeight: '85vh', overflow: 'auto', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Edit Comp — {editComp.property_name || editComp._sale_id}</h3>
+              <button onClick={() => setEditComp(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>×</button>
+            </div>
+            {EDIT_FIELDS.map(section => (
+              <div key={section.section} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{section.section}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {section.fields.map(f => (
+                    <div key={f.key} style={f.type === 'checkbox' ? { display: 'flex', alignItems: 'center', gap: 6 } : {}}>
+                      {f.type === 'checkbox' ? (
+                        <><input type="checkbox" checked={!!editComp[f.key]} onChange={e => updateEditField(f.key, e.target.checked)} /><label style={{ fontSize: 12, color: '#555' }}>{f.label}</label></>
+                      ) : (
+                        <><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 2 }}>{f.label}</label>
+                        {f.type === 'select' ? (
+                          <select value={editComp[f.key] || ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle}><option value="">—</option>{f.options.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                        ) : (
+                          <input type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'} value={editComp[f.key] ?? ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle} />
+                        )}</>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
+              <button onClick={() => setEditComp(null)} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={saveEdit} style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── FILTER BAR ── */}
       <div style={{ background: '#fff', borderRadius: 12, border: borderC, padding: '1rem', marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
@@ -863,7 +980,7 @@ function CompAnalysis({ proposal }) {
           </div>
         </div>
         <div style={{ fontSize: 11, color: '#888', marginTop: 8 }}>
-          {baseFiltered.length} comps matched · {activeComps.length} included in stats
+          {baseFiltered.length} comps matched · {activeComps.length} in stats · {marketingComps.length} in marketing
         </div>
       </div>
 
@@ -922,14 +1039,20 @@ function CompAnalysis({ proposal }) {
       <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto' }}>
         <div style={{ padding: '10px 14px', borderBottom: borderC, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: '#666' }}>COMPS ({baseFiltered.length})</span>
-          <button onClick={toggleAll} style={{ fontSize: 11, padding: '3px 8px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>
-            {excluded.size === 0 ? 'Deselect all' : 'Select all'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={toggleAll} style={{ fontSize: 11, padding: '3px 8px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>
+              {excluded.size === 0 ? 'Deselect all stats' : 'Select all stats'}
+            </button>
+            <button onClick={toggleAllMktg} style={{ fontSize: 11, padding: '3px 8px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>
+              {excludedMktg.size === 0 ? 'Deselect all mktg' : 'Select all mktg'}
+            </button>
+          </div>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
           <thead>
             <tr style={{ background: '#f9f9f9' }}>
-              <th style={{ padding: cellPad, borderBottom: borderC, width: 30 }}></th>
+              <th style={{ padding: cellPad, borderBottom: borderC, width: 40, fontSize: 9, textAlign: 'center', color: '#888' }}>Stats</th>
+              <th style={{ padding: cellPad, borderBottom: borderC, width: 40, fontSize: 9, textAlign: 'center', color: '#888' }}>Mktg</th>
               {compTh('Status', '_st')}
               {compTh('Property', 'property_name')}
               {compTh('Sub-Market', 'sub_market')}
@@ -945,19 +1068,25 @@ function CompAnalysis({ proposal }) {
               {compTh('Active DOM', '_activeDom')}
               {compTh('Total DOM', '_totalDom')}
               {compTh('Escrow', '_escrow')}
+              <th style={{ padding: cellPad, borderBottom: borderC, width: 30 }}></th>
             </tr>
           </thead>
           <tbody>
             {compTableData.length === 0 && (
-              <tr><td colSpan={16} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match the current filters.</td></tr>
+              <tr><td colSpan={18} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match the current filters.</td></tr>
             )}
             {compTableData.map(c => {
               const isExcl = excluded.has(c.id)
+              const isExclM = excludedMktg.has(c.id)
+              const dimmed = isExcl && isExclM
               const stStyle = c._st === 'Sold' ? { bg: '#E1F5EE', color: '#085041' } : c._st === 'Active' ? { bg: '#E6F1FB', color: '#0C447C' } : { bg: '#FAEEDA', color: '#633806' }
               return (
-                <tr key={c.id} style={{ opacity: isExcl ? 0.4 : 1, background: isExcl ? '#fafafa' : '#fff' }}>
+                <tr key={c.id} style={{ opacity: dimmed ? 0.4 : 1, background: dimmed ? '#fafafa' : '#fff' }}>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
                     <input type="checkbox" checked={!isExcl} onChange={() => toggleExclude(c.id)} style={{ cursor: 'pointer' }} />
+                  </td>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
+                    <input type="checkbox" checked={!isExclM} onChange={() => toggleExcludeMktg(c.id)} style={{ cursor: 'pointer' }} />
                   </td>
                   <td style={{ padding: cellPad, borderBottom: borderC }}>
                     <span style={{ background: stStyle.bg, color: stStyle.color, padding: '1px 7px', borderRadius: 4, fontSize: 11, fontWeight: 500 }}>{c._st}</span>
@@ -978,7 +1107,9 @@ function CompAnalysis({ proposal }) {
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c._activeDom != null ? c._activeDom : '—'}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c._totalDom != null ? c._totalDom : '—'}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right' }}>{c._escrow != null ? c._escrow : '—'}</td>
-                </tr>
+                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
+                    <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#185FA5', padding: '1px 3px' }} title="Edit comp">✎</button>
+                  </td>
               )
             })}
           </tbody>

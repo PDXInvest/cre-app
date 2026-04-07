@@ -69,6 +69,7 @@ export default function RentRoll({ proposal }) {
   }
 
   function removeUnit(idx) {
+    if (!confirm('Remove this unit from the rent roll? This cannot be undone.')) return
     setUnits(prev => prev.filter((_, i) => i !== idx))
   }
 

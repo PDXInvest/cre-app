@@ -52,6 +52,7 @@ export default function CompDatabase() {
   const [typeFilter, setTypeFilter] = useState('All')
   const [sortCol, setSortCol] = useState('sale_date')
   const [sortDir, setSortDir] = useState('desc')
+  const [editComp, setEditComp] = useState(null) // comp being edited
 
   useEffect(() => { loadComps() }, [])
 
@@ -163,10 +164,137 @@ async function loadComps() {
     </th>
   )
 
+  // ── Edit modal helpers ──
+  const EDIT_FIELDS = [
+    { section: 'Property', fields: [
+      { key: 'property_name', label: 'Property Name', type: 'text' },
+      { key: 'sale_name', label: 'Sale Name', type: 'text' },
+      { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Pending', 'Under Contract', 'Sold', 'CAN/EXP/WTH'] },
+      { key: 'property_sub_type', label: 'Property Type', type: 'text' },
+      { key: 'year_built', label: 'Year Built', type: 'number' },
+      { key: 'year_built_era', label: 'Year Built Era', type: 'text' },
+    ]},
+    { section: 'Location', fields: [
+      { key: 'market', label: 'Market', type: 'text' },
+      { key: 'sub_market', label: 'Sub-Market', type: 'text' },
+      { key: 'property_county', label: 'County', type: 'text' },
+      { key: 'zip_code', label: 'Zip Code', type: 'text' },
+    ]},
+    { section: 'Size', fields: [
+      { key: 'num_units', label: '# of Units', type: 'number' },
+      { key: 'building_sf', label: 'Building SF', type: 'number' },
+    ]},
+    { section: 'Dates', fields: [
+      { key: 'listing_date', label: 'Listing Date', type: 'date' },
+      { key: 'pending_date', label: 'Pending Date', type: 'date' },
+      { key: 'sale_date', label: 'Sale Date', type: 'date' },
+      { key: 'can_exp_wth_date', label: 'CAN/EXP/WTH Date', type: 'date' },
+    ]},
+    { section: 'Financial', fields: [
+      { key: 'original_listing_price', label: 'Original Listing Price', type: 'number' },
+      { key: 'listing_price', label: 'Listing Price', type: 'number' },
+      { key: 'sale_price', label: 'Sale Price', type: 'number' },
+      { key: 'loan_amount', label: 'Loan Amount', type: 'number' },
+      { key: 'sales_terms', label: 'Sales Terms', type: 'text' },
+    ]},
+    { section: 'Analysis', fields: [
+      { key: 'adv_agi', label: 'AGI', type: 'number' },
+      { key: 'adv_noi', label: 'NOI', type: 'number' },
+      { key: 'x_agi', label: 'Exclude AGI', type: 'checkbox' },
+      { key: 'x_noi', label: 'Exclude NOI', type: 'checkbox' },
+      { key: 'owner_occ_purchase', label: 'Owner Occupied', type: 'checkbox' },
+    ]},
+  ]
+
+  function openEdit(comp) {
+    const form = {}
+    EDIT_FIELDS.forEach(s => s.fields.forEach(f => {
+      const v = comp[f.key]
+      if (f.type === 'date' && v) {
+        try { form[f.key] = new Date(v).toISOString().split('T')[0] } catch { form[f.key] = v || '' }
+      } else if (f.type === 'checkbox') {
+        form[f.key] = !!v
+      } else {
+        form[f.key] = v ?? ''
+      }
+    }))
+    form._id = comp.id
+    form._sale_id = comp.sale_id
+    setEditComp(form)
+  }
+
+  function updateEditField(key, value) {
+    setEditComp(prev => ({ ...prev, [key]: value }))
+  }
+
+  async function saveEdit() {
+    if (!editComp) return
+    const updates = {}
+    EDIT_FIELDS.forEach(s => s.fields.forEach(f => {
+      let v = editComp[f.key]
+      if (f.type === 'number') v = v === '' ? null : Number(v)
+      else if (f.type === 'date') v = v || null
+      else if (f.type === 'checkbox') v = !!v
+      updates[f.key] = v
+    }))
+    const { error } = await supabase.from('comps').update(updates).eq('id', editComp._id)
+    if (error) { console.error(error); setMsg('Save error'); return }
+    setMsg('Comp updated')
+    setTimeout(() => setMsg(''), 3000)
+    setEditComp(null)
+    loadComps()
+  }
+
+  const editInputStyle = { width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12 }
+
   if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading comps...</div>
 
   return (
     <div>
+      {/* ── EDIT MODAL ── */}
+      {editComp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setEditComp(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 640, maxHeight: '85vh', overflow: 'auto', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Edit Comp — {editComp.property_name || editComp._sale_id}</h3>
+              <button onClick={() => setEditComp(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>×</button>
+            </div>
+            {EDIT_FIELDS.map(section => (
+              <div key={section.section} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{section.section}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {section.fields.map(f => (
+                    <div key={f.key} style={f.type === 'checkbox' ? { display: 'flex', alignItems: 'center', gap: 6 } : {}}>
+                      {f.type === 'checkbox' ? (
+                        <>
+                          <input type="checkbox" checked={!!editComp[f.key]} onChange={e => updateEditField(f.key, e.target.checked)} />
+                          <label style={{ fontSize: 12, color: '#555' }}>{f.label}</label>
+                        </>
+                      ) : (
+                        <>
+                          <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 2 }}>{f.label}</label>
+                          {f.type === 'select' ? (
+                            <select value={editComp[f.key] || ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle}>
+                              <option value="">—</option>
+                              {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : (
+                            <input type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'} value={editComp[f.key] ?? ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle} />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
+              <button onClick={() => setEditComp(null)} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={saveEdit} style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 500 }}>Comp database</h1>
@@ -244,11 +372,11 @@ async function loadComps() {
                   {th('Total DOM', '_totalDom')}
                   {th('Escrow', '_escrow')}
                   {th('Terms', 'sales_terms')}
-                </tr>
+                  <th style={{ padding: '8px 10px', width: 40 }}></th>
               </thead>
               <tbody>
                 {sorted.length === 0 && (
-                  <tr><td colSpan={16} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match filters</td></tr>
+                  <tr><td colSpan={17} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match filters</td></tr>
                 )}
                 {sorted.map((c, i) => {
                   const st = STATUS_STYLE[c.status] || { bg: '#f5f5f5', color: '#555' }
@@ -270,7 +398,9 @@ async function loadComps() {
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._totalDom != null ? c._totalDom + 'd' : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._escrow != null ? c._escrow + 'd' : '—'}</td>
                       <td style={{ padding: '8px 10px', color: '#555' }}>{c.sales_terms || '—'}</td>
-                    </tr>
+                      <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                        <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#185FA5', padding: '2px 4px' }} title="Edit comp">✎</button>
+                      </td>
                   )
                 })}
               </tbody>

@@ -820,7 +820,7 @@ export default function Financials({ proposal }) {
             <thead><tr>
               <th style={{ ...hdrStyle, width: 250, textAlign: 'left' }}>Assumption</th>
               <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 120 }}>Default</th>
-              <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 120, background: projBg }}>This Proposal</th>
+              <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 140, background: projBg }}>This Proposal</th>
               <th style={{ ...hdrStyle, textAlign: 'center', minWidth: 100 }}>Effective</th>
               <th style={{ ...hdrStyle, width: 40 }}></th>
             </tr></thead>
@@ -830,18 +830,45 @@ export default function Financials({ proposal }) {
                 ...group.items.map(item => {
                   const isPct = item.fmt === 'pct'
                   const hasOv = data?.growth_assumptions?.[item.code] != null && data?.growth_assumptions?.[item.code] !== ''
-                  const eff = getEffective(item.code)
-                  const fmtDisp = v => (v === '' || v == null) ? '—' : isPct ? (Number(v) * 100).toFixed(1) + '%' : '$' + Math.round(Number(v)).toLocaleString()
+                  const rawDefault = defaults[item.code]
+                  const rawOverride = data?.growth_assumptions?.[item.code]
+                  const rawEff = hasOv ? rawOverride : rawDefault
+
+                  // Display helpers: decimals → human-readable
+                  const fmtDisplay = v => (v === '' || v == null) ? '—' : isPct ? (Number(v) * 100).toFixed(2) + '%' : '$' + Math.round(Number(v)).toLocaleString()
+
+                  // Override input: show as % or $, blank = use default
+                  const overrideDisplay = () => {
+                    if (rawOverride == null || rawOverride === '') return ''
+                    return isPct ? (Number(rawOverride) * 100).toFixed(2) : String(rawOverride)
+                  }
+
+                  const handleOverrideChange = (e) => {
+                    const v = e.target.value.replace(/[%$,\s]/g, '')
+                    if (v === '') { setOverride(item.code, '') }
+                    else {
+                      const num = parseFloat(v)
+                      if (!isNaN(num)) setOverride(item.code, isPct ? String(num / 100) : String(num))
+                    }
+                  }
+
                   return (
                     <tr key={item.code} style={{ background: hasOv ? '#F8F7FF' : '#fff' }}>
                       <td style={{ ...labelStyle, paddingLeft: 16 }}>{item.label}</td>
-                      <td style={{ padding: '2px 4px', borderBottom: borderC, borderRight: borderC }}>
-                        <input type="number" step={isPct ? '0.001' : '1'} value={getDefault(item.code)} onChange={e => setDefault(item.code, e.target.value)} onFocus={selectOnFocus} style={{ ...numInput, fontSize: 12 }} placeholder={isPct ? '0.05' : '0'} />
+                      <td style={{ padding: cellPad, textAlign: 'right', borderBottom: borderC, borderRight: borderC, color: '#666', fontSize: 12 }}>
+                        {fmtDisplay(rawDefault)}
                       </td>
                       <td style={{ padding: '2px 4px', borderBottom: borderC, borderRight: borderC, background: '#F8F7FF' }}>
-                        <input type="number" step={isPct ? '0.001' : '1'} value={getOverride(item.code)} onChange={e => setOverride(item.code, e.target.value)} onFocus={selectOnFocus} style={{ ...numInput, fontSize: 12 }} placeholder="Use default" />
+                        <input
+                          type="text"
+                          value={overrideDisplay()}
+                          onChange={handleOverrideChange}
+                          onFocus={selectOnFocus}
+                          style={{ ...numInput, fontSize: 12 }}
+                          placeholder=""
+                        />
                       </td>
-                      <td style={{ padding: cellPad, textAlign: 'right', borderBottom: borderC, borderRight: borderC, fontWeight: 500, color: hasOv ? '#3C3489' : '#333' }}>{fmtDisp(eff)}</td>
+                      <td style={{ padding: cellPad, textAlign: 'right', borderBottom: borderC, borderRight: borderC, fontWeight: 500, color: hasOv ? '#3C3489' : '#333' }}>{fmtDisplay(rawEff)}</td>
                       <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
                         {hasOv && <button onClick={() => clearOverride(item.code)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 11 }} title="Reset to default">↩</button>}
                       </td>
@@ -852,7 +879,7 @@ export default function Financials({ proposal }) {
             </tbody>
           </table>
           <div style={{ padding: '8px 12px', fontSize: 11, color: '#888', borderTop: borderC }}>
-            Percentages entered as decimals (e.g., 0.05 = 5%). Dollar amounts are annual per-unit. Purple highlights indicate proposal-level overrides.
+            Enter percentages as whole numbers (e.g., 3.50 = 3.50%). Dollar amounts are annual per-unit. Leave blank to use the default. Purple highlights indicate proposal-level overrides.
           </div>
         </div>
       )}
