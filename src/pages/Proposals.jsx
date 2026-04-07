@@ -34,12 +34,12 @@ export default function Proposals() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: props }, { data: props2 }] = await Promise.all([
+    const [{ data: props }, { count }] = await Promise.all([
       supabase.from('proposals').select('*, properties(*)').order('created_at', { ascending: false }),
-      supabase.from('properties').select('*').order('property_name'),
+      supabase.from('properties').select('*', { count: 'exact', head: true }),
     ])
     setProposals(props || [])
-    setProperties(props2 || [])
+    setProperties(count || 0)
     setLoading(false)
   }
 
@@ -107,7 +107,6 @@ export default function Proposals() {
 
   if (view === 'new') return (
     <NewProposal
-      properties={properties}
       onBack={() => setView('pipeline')}
       onCreated={(id) => { loadAll(); setSelectedId(id); setView('detail') }}
       onImportProperties={() => setShowPropImport(true)}
@@ -131,7 +130,7 @@ export default function Proposals() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 500 }}>Proposals</h1>
           <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-            {proposals.length} total · {properties.length} properties
+            {proposals.length} total · {properties} properties
             {msg && <span style={{ color: '#27500A', marginLeft: 8 }}>{msg}</span>}
           </div>
         </div>
@@ -212,8 +211,10 @@ export default function Proposals() {
   )
 }
 
-function NewProposal({ properties, onBack, onCreated }) {
+function NewProposal({ onBack, onCreated }) {
   const [srch, setSrch] = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
   const [selected, setSelected] = useState(null)
   const [manual, setManual] = useState(false)
   const [asking, setAsking] = useState('')
@@ -222,11 +223,20 @@ function NewProposal({ properties, onBack, onCreated }) {
   const [saving, setSaving] = useState(false)
   const [manualFields, setManualFields] = useState({})
 
-  const results = srch.length >= 2 ? properties.filter(p =>
-    (p.street || '').toLowerCase().includes(srch.toLowerCase()) ||
-    (p.property_name || '').toLowerCase().includes(srch.toLowerCase()) ||
-    (p.zip || '').includes(srch)
-  ).slice(0, 6) : []
+  useEffect(() => {
+    if (srch.length < 2) { setResults([]); return }
+    const timer = setTimeout(async () => {
+      setSearching(true)
+      const q = `%${srch}%`
+      const { data } = await supabase.from('properties')
+        .select('*')
+        .or(`street.ilike.${q},property_name.ilike.${q},zip.ilike.${q}`)
+        .limit(8)
+      setResults(data || [])
+      setSearching(false)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [srch])
 
   async function create() {
     setSaving(true)
@@ -273,7 +283,8 @@ function NewProposal({ properties, onBack, onCreated }) {
           <input value={srch} onChange={e => setSrch(e.target.value)} placeholder="Start typing an address..." autoFocus style={{ width: '100%', padding: '8px 10px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13 }} />
           {srch.length >= 2 && (
             <div style={{ marginTop: 8 }}>
-              {results.map(p => (
+              {searching && <div style={{ padding: '8px 12px', color: '#888', fontSize: 12 }}>Searching...</div>}
+              {!searching && results.map(p => (
                 <div key={p.id} onClick={() => setSelected(p)} style={{ padding: '10px 12px', borderRadius: 8, border: '0.5px solid #eee', marginBottom: 6, cursor: 'pointer', background: '#fff' }}
                   onMouseEnter={e => e.currentTarget.style.background = '#E6F1FB'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
@@ -281,9 +292,9 @@ function NewProposal({ properties, onBack, onCreated }) {
                   <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{[p.city, p.state, p.zip].filter(Boolean).join(', ')} · {p.total_units || '?'} units · {p.property_sub_type || ''}</div>
                 </div>
               ))}
-              <div onClick={() => setManual(true)} style={{ padding: '10px 12px', borderRadius: 8, border: '0.5px dashed #ccc', cursor: 'pointer', textAlign: 'center', color: '#888', fontSize: 13 }}>
+              {!searching && <div onClick={() => setManual(true)} style={{ padding: '10px 12px', borderRadius: 8, border: '0.5px dashed #ccc', cursor: 'pointer', textAlign: 'center', color: '#888', fontSize: 13 }}>
                 {results.length ? '+ Create new property' : 'No match — create new property'}
-              </div>
+              </div>}
             </div>
           )}
         </div>
