@@ -423,6 +423,10 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
   const [siIncome,   setSiIncome]   = useState('')
   const [siExpenses, setSiExpenses] = useState('')
   const siDashRef = { current: {} }
+  // Bench stats — computed independently in ProposalDetail, no tab dependency
+  const [benchDateRange, setBenchDateRange] = useState(180)
+  const [benchStats,     setBenchStats]     = useState(null)
+  const [benchComps,     setBenchComps]     = useState([])
 
   useEffect(() => { loadProposal() }, [proposalId])
 
@@ -442,6 +446,69 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
     }
     setLoading(false)
   }
+
+  // ── Bench comp loading (runs once on mount, independent of tab) ─────────────
+  useEffect(() => { loadBenchComps() }, [proposalId])
+
+  async function loadBenchComps() {
+    let all = [], from = 0, pageSize = 1000, done = false
+    while (!done) {
+      const { data } = await supabase.from('comps').select('*')
+        .order('sale_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1)
+      all = all.concat(data || [])
+      if (!data || data.length < pageSize) done = true
+      else from += pageSize
+    }
+    setBenchComps(all)
+  }
+
+  // ── Recompute bench stats whenever comps or dateRange changes ────────────────
+  useEffect(() => {
+    if (!benchComps.length || !proposal) return
+    const pr = proposal.properties || {}
+    const era = pr.year_built_era
+    const [minU, maxU] = unitRangeFromSubType(pr.property_sub_type, pr.total_units)
+    function med(arr) {
+      const a = arr.filter(v => v != null && isFinite(v)).sort((a, b) => a - b)
+      if (!a.length) return null
+      const m = Math.floor(a.length / 2)
+      return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
+    }
+    function colStats(comps) {
+      if (!comps.length) return null
+      return {
+        count: comps.length,
+        ppu: med(comps.map(c => c.sale_price && c.num_units ? c.sale_price / c.num_units : null)),
+        psf: med(comps.map(c => c.sale_price && c.building_sf ? c.sale_price / c.building_sf : null)),
+        cap: med(comps.map(c => !c.x_noi && c.adv_noi > 0 && c.sale_price ? c.adv_noi / c.sale_price : null)),
+        grm: med(comps.map(c => !c.x_agi && c.adv_agi > 0 && c.sale_price ? c.sale_price / c.adv_agi : null)),
+      }
+    }
+    const cutoff = benchDateRange >= 99999 ? null : (() => {
+      const d = new Date(); d.setDate(d.getDate() - benchDateRange); return d
+    })()
+    // Base: Sold, date filter, unit range filter (mirrors CompAnalysis defaults)
+    const base = benchComps.filter(c => {
+      if (c.status !== 'Sold') return false
+      if (cutoff) {
+        const sd = c.sale_date ? new Date(c.sale_date) : null
+        if (sd && sd < cutoff) return false
+      }
+      const u = c.num_units
+      if (u != null && (u < minU || u > maxU)) return false
+      return true
+    })
+    const eraFn = c => !era || !c.year_built_era || c.year_built_era === era
+    const stats = [
+      { label: 'Market / MSA', comps: base.filter(c => pr.market     && c.market          === pr.market     && eraFn(c)) },
+      { label: 'County',       comps: base.filter(c => pr.county     && c.property_county === pr.county     && eraFn(c)) },
+      { label: 'Sub-Market',   comps: base.filter(c => pr.sub_market && c.sub_market      === pr.sub_market && eraFn(c)) },
+      { label: 'Zip',          comps: base.filter(c => pr.zip        && String(c.zip_code) === String(pr.zip) && eraFn(c)) },
+    ].map(col => ({ label: col.label, ...(colStats(col.comps) || { count: 0 }) }))
+    setBenchStats(stats)
+  }, [benchComps.length, benchDateRange, proposal?.id])
 
   async function saveSIField(field, value) {
     siDashRef.current = { ...siDashRef.current, [field]: parseFloat(value) || null }
@@ -563,7 +630,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
               </div>
             </div>
           </div>
-          <PropertyDashboard proposal={proposal} />
+          <PropertyDashboard proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} />
         </div>
       )}
 
@@ -572,7 +639,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       )}
 
       {tab === 'comp analysis' && (
-        <CompAnalysis proposal={proposal} />
+        <CompAnalysis proposal={proposal} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} />
       )}
 
       {tab === 'rent roll' && (
@@ -688,11 +755,14 @@ function unitRangeFromSubType(subType, totalUnits) {
   return [0, 999]
 }
 
-function CompAnalysis({ proposal }) {
+function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
   const pr = proposal.properties || {}
   const [allComps, setAllComps] = useState([])
   const [loading, setLoading] = useState(true)
-  const [dateRange, setDateRange] = useState(730)
+  // dateRange is lifted to ProposalDetail; keep local state as fallback if prop not provided
+  const [localDateRange, setLocalDateRange] = useState(benchDateRange ?? 730)
+  const dateRange = benchDateRange ?? localDateRange
+  function setDateRange(v) { setLocalDateRange(v); if (onBenchDateRangeChange) onBenchDateRangeChange(v) }
   const [excluded, setExcluded] = useState(new Set())
   const [excludedMktg, setExcludedMktg] = useState(new Set())
 
@@ -898,6 +968,7 @@ function CompAnalysis({ proposal }) {
   const fmtP = v => v != null ? (v * 100).toFixed(2) + '%' : 'No Data'
   const fmtX = v => v != null ? v.toFixed(2) : 'No Data'
   const fmtD = v => v != null ? Math.round(v) : 'No Data'
+
   const fmtDate = v => {
     if (!v) return '—'
     const d = new Date(v)

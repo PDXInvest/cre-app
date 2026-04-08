@@ -115,13 +115,13 @@ function KV({ label, value, bold, color }) {
   )
 }
 
-export default function PropertyDashboard({ proposal }) {
+export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange }) {
   const [dash,       setDash]       = useState({})
   const [finRow,     setFinRow]     = useState(null)
   const [rrUnits,    setRrUnits]    = useState([])
   const [defs,       setDefs]       = useState({})
   const [benchComps, setBenchComps] = useState([])
-  const [benchDays,  setBenchDays]  = useState(180)
+  // benchDateRange and benchStats are lifted from CompAnalysis via ProposalDetail
   const [loading,    setLoading]    = useState(true)
   const [saving,     setSaving]     = useState(false)
   const [msg,        setMsg]        = useState('')
@@ -142,60 +142,43 @@ export default function PropertyDashboard({ proposal }) {
       if (dRes.error) console.warn('dashboard:', dRes.error.message)
       if (fRes.error) console.warn('financials:', fRes.error.message)
       if (rRes.error) console.warn('rent_roll:', rRes.error.message)
-      // Load ALL comps with pagination (identical approach to CompAnalysis)
-      // Then filter to Sold in JS to guarantee parity with CompAnalysis counts
-      let allComps = [], from = 0, pageSize = 1000, done = false
-      while (!done) {
-        const { data: page } = await supabase.from('comps').select('*')
-          .order('sale_date', { ascending: false, nullsFirst: false })
-          .order('id', { ascending: true })
-          .range(from, from + pageSize - 1)
-        allComps = allComps.concat(page || [])
-        if (!page || page.length < pageSize) done = true
-        else from += pageSize
-      }
-      const loadedComps = allComps.filter(c => c.status === 'Sold')
+      // Comps loaded by CompAnalysis; bench stats passed in via props — no comp loading here
 
       const loadedDash  = dRes.data?.data || {}
 
-      // Auto-fill pricing targets from benchmarks on first load (if any are missing)
-      const existPT = loadedDash.pricing_targets || {}
-      const needsFill = !existPT.target_per_unit || !existPT.target_per_sf ||
-                        !existPT.target_cap_rate || !existPT.target_grm ||
-                        !existPT.target_dscr || !existPT.target_return_pct
-      if (needsFill && loadedComps.length) {
-        const era = pr.year_built_era
-        // Use 180-day window, era per-column (mirrors benchData display logic)
-        const cutoff180 = Date.now() - 180 * 24 * 60 * 60 * 1000
-        const eraFn = c => !era || !c.year_built_era || c.year_built_era === era
-        const base180 = loadedComps.filter(c => {
-          const ms = parseSaleDate(c.sale_date)
-          return !ms || ms >= cutoff180   // null date = include (matches CompAnalysis)
-        })
-        // Use 180d era-filtered MSA comps as the reference for defaults
-        const msaComps180 = base180.filter(c => pr.market ? c.market === pr.market : true).filter(eraFn)
-        // Fall back to all era-matching comps if not enough 180d data
-        const eraComps = loadedComps.filter(eraFn)
-        const stats = geoStats(msaComps180.length >= 3 ? msaComps180 : eraComps)
-        const updates = {}
-        if (!existPT.target_per_unit  && stats?.perUnit)  updates.target_per_unit  = String(Math.round(stats.perUnit))
-        if (!existPT.target_per_sf    && stats?.perSF)    updates.target_per_sf    = stats.perSF.toFixed(0)
-        if (!existPT.target_cap_rate  && stats?.capRate)  updates.target_cap_rate  = (stats.capRate*100).toFixed(2)
-        if (!existPT.target_grm       && stats?.grm)      updates.target_grm       = stats.grm.toFixed(2)
-        if (!existPT.target_dscr)       updates.target_dscr       = '1.25'
-        if (!existPT.target_return_pct) updates.target_return_pct = '10'
-        if (Object.keys(updates).length)
-          loadedDash.pricing_targets = { ...existPT, ...updates }
-      }
+      // Pricing target auto-fill now handled via useEffect watching benchStats prop
 
       setDash(loadedDash)
       setFinRow(fRes.data)
       setRrUnits(rRes.data || [])
       if (sRes.data?.value) setDefs(sRes.data.value)
-      setBenchComps(loadedComps)
+
     } catch(e) { console.error('PropertyDashboard load:', e) }
     finally { setLoading(false) }
   }
+
+  // Auto-fill pricing targets from bench stats when they first arrive from CompAnalysis
+  useEffect(() => {
+    if (!benchStats || !benchStats.length) return
+    setDash(prev => {
+      const existPT = prev.pricing_targets || {}
+      const needsFill = !existPT.target_per_unit || !existPT.target_per_sf ||
+                        !existPT.target_cap_rate || !existPT.target_grm ||
+                        !existPT.target_dscr     || !existPT.target_return_pct
+      if (!needsFill) return prev
+      // Use MSA column (first) as reference for defaults
+      const msaCol = benchStats.find(c => c.label === 'Market / MSA') || benchStats[0]
+      const updates = {}
+      if (!existPT.target_per_unit  && msaCol.ppu  > 0) updates.target_per_unit  = String(Math.round(msaCol.ppu))
+      if (!existPT.target_per_sf    && msaCol.psf  > 0) updates.target_per_sf    = msaCol.psf.toFixed(0)
+      if (!existPT.target_cap_rate  && msaCol.cap  > 0) updates.target_cap_rate  = (msaCol.cap * 100).toFixed(2)
+      if (!existPT.target_grm       && msaCol.grm  > 0) updates.target_grm       = msaCol.grm.toFixed(2)
+      if (!existPT.target_dscr)       updates.target_dscr       = '1.25'
+      if (!existPT.target_return_pct) updates.target_return_pct = '10'
+      if (!Object.keys(updates).length) return prev
+      return { ...prev, pricing_targets: { ...existPT, ...updates } }
+    })
+  }, [benchStats])
 
   async function upsertDash(dataObj) {
     const { data:ex } = await supabase.from('proposal_dashboard').select('id').eq('proposal_id',proposal.id).maybeSingle()
@@ -356,25 +339,20 @@ export default function PropertyDashboard({ proposal }) {
 
   // ── Market benchmarks — 4-column geo breakdown (geoStats is module-level) ──────────
 
+  // Map CompAnalysis bench stats (passed as prop) into display format.
+  // These are computed by CompAnalysis using the exact same logic — no recalculation here.
   const benchData = (() => {
-    const era      = pr.year_built_era
-    // Date filter only — era is a display label, NOT a base filter (mirrors CompAnalysis behavior)
-    const cutoffMs = benchDays===0 ? null : (() => { const d=new Date(); d.setDate(d.getDate()-benchDays); return d.getTime() })()
-    const base     = benchComps.filter(c => {
-      if (cutoffMs) {
-        const saleMs = parseSaleDate(c.sale_date)
-        if (saleMs && saleMs < cutoffMs) return false   // null date = include (matches CompAnalysis)
-      }
-      return true
-    })
-    // Each column filters by geo AND era (era-matching comps only, matching CompAnalysis colFilter behavior)
-    const eraFn = c => !era || !c.year_built_era || c.year_built_era === era
-    const cols = [
-      { label:'Market / MSA', comps: base.filter(c => pr.market     && c.market          === pr.market     && eraFn(c)) },
-      { label:'County',       comps: base.filter(c => pr.county     && c.property_county === pr.county     && eraFn(c)) },
-      { label:'Sub-Market',   comps: base.filter(c => pr.sub_market && c.sub_market      === pr.sub_market && eraFn(c)) },
-      { label:'Zip',          comps: base.filter(c => pr.zip        && String(c.zip_code) === String(pr.zip) && eraFn(c)) },
-    ].map(col => ({ ...col, stats: geoStats(col.comps) }))
+    if (!benchStats || !benchStats.length) return { cols: [], hasAny: false }
+    const cols = benchStats.map(col => ({
+      label: col.label,
+      stats: col.count > 0 ? {
+        count:   col.count,
+        perUnit: col.ppu,
+        perSF:   col.psf,
+        capRate: col.cap,
+        grm:     col.grm,
+      } : null,
+    }))
     return { cols, hasAny: cols.some(c => c.stats) }
   })()
 
@@ -467,18 +445,18 @@ export default function PropertyDashboard({ proposal }) {
       <div style={card}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', ...sHdr }}>
           <span>Market Benchmarks {pr.year_built_era ? `— ${pr.year_built_era}` : ''}</span>
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:11, color:'#999', fontWeight:400, textTransform:'none', letterSpacing:0 }}>Last:</span>
-            {[90,180,365,730,0].map(d => (
-              <button key={d} onClick={()=>setBenchDays(d)} style={{ padding:'3px 8px', fontSize:11, border:'0.5px solid', borderRadius:5, cursor:'pointer',
-                background:benchDays===d?'#111':'transparent', color:benchDays===d?'#fff':'#888', borderColor:benchDays===d?'#111':'#ddd' }}>
-                {d===0?'All':d===365?'1 yr':d===730?'2 yr':`${d}d`}
-              </button>
-            ))}
+          <div style={{ fontSize:11, color:'#888', fontWeight:400, textTransform:'none', letterSpacing:0 }}>
+            {benchDateRange >= 99999 ? 'All time'
+              : benchDateRange >= 730 ? 'Last 2 years'
+              : benchDateRange >= 365 ? 'Last 1 year'
+              : benchDateRange >= 180 ? 'Last 6 months'
+              : benchDateRange >= 90  ? 'Last 3 months'
+              : `Last ${benchDateRange} days`}
+            {' · reflects Comp Analysis filters'}
           </div>
         </div>
         {!benchData.hasAny
-          ? <div style={{ fontSize:12, color:'#bbb' }}>No sold comps found matching the selected era / period.</div>
+          ? <div style={{ fontSize:12, color:'#bbb' }}>No sold comp data available — check Comp Analysis tab filters.</div>
           : <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
               <thead>
                 <tr>
