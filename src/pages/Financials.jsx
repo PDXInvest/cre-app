@@ -192,7 +192,7 @@ const fmt$ = v => { const n = Number(v); return isNaN(n) || n === 0 ? '—' : (n
 /* ═══════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════ */
-export default function Financials({ proposal }) {
+export default function Financials({ proposal, opModel }) {
   const [data, setData] = useState(null)
   const [rentRollUnits, setRentRollUnits] = useState([])
   const [defaults, setDefaults] = useState({})
@@ -302,6 +302,38 @@ export default function Financials({ proposal }) {
     if (!['scheduled', 'stabilized', 'market'].includes(period)) return null
     if (!totalUnits) return null
     try {
+      // Stabilized column: use operating model stabilizedYear when available
+      if (period === 'stabilized' && opModel?.stabilizedYear) {
+        const sy = opModel.stabilizedYear
+        if (code === 'collected_rent')  return sy.grossRent || null
+        if (code === 'rubs')            return sy.nonRent   || null   // approx — rubs included in nonRent
+        if (code === '_gen_vacancy')    return sy.vacancy   ? -sy.vacancy   : null
+        if (code === 'concessions')     return sy.concessions ? -sy.concessions : null
+        if (code === 'property_mgmt')   return sy.expenses  ? -(sy.egr * ga('property_mgmt_pct')) : null
+        // For individual expense line items in stabilized, fall through to standard logic below
+        // but use stabYearIdx for growth compounding
+        const stabYearIdx = Math.floor((opModel.propertyStabilizedMonth || 12) / 12)
+        const expYears = stabYearIdx
+        const annualActual = rrTotalActual * 12, annualMarket = rrTotalMarket * 12
+        const baseCollected = sy.egr
+        if (code === 'insurance')       return ga('insurance_per_unit') * totalUnits * Math.pow(1 + ga('insurance_growth'), expYears)
+        if (code === 'utilities')       return ga('utilities_per_unit') * totalUnits * Math.pow(1 + ga('utilities_growth'), expYears)
+        if (code === 'turnover')        return ga('turnover_per_unit')  * totalUnits * Math.pow(1 + ga('turnover_growth'),  expYears)
+        if (code === 'capital_reserves')return ga('cap_reserves_per_unit') * totalUnits * Math.pow(1 + ga('cap_reserves_growth'), expYears)
+        const controllable = ['administrative','repairs_maintenance','landscaping','security','contract_services','advertising','payroll','misc']
+        if (controllable.includes(code)) {
+          const rate = code === 'repairs_maintenance' ? ga('rm_growth') : ga('controllable_growth')
+          return getT12ValForGroup(code) * Math.pow(1 + rate, expYears + 1)
+        }
+        if (code === 'property_taxes') return getT12ValForGroup('property_taxes') * Math.pow(1 + ga('property_tax_growth'), expYears + 1)
+        if (code === 'other_taxes')    return getT12ValForGroup('other_taxes') * Math.pow(1 + ga('controllable_growth'), expYears + 1)
+        if (code === 'market_rent')    return annualMarket * Math.pow(1 + ga('market_rent_growth'), stabYearIdx)
+        if (code === 'loss_to_lease')  return 0
+        if (code === 'parking')        return getT12ValForGroup('parking') * (1 + ga('parking_growth'))
+        if (code === 'storage')        return getT12ValForGroup('storage') * (1 + ga('storage_growth'))
+        if (code === 'other_income')   return getT12ValForGroup('other_income') * (1 + ga('other_income_growth'))
+        return null
+      }
       const annualActual = rrTotalActual * 12, annualMarket = rrTotalMarket * 12
       const mktGrowth = 1 + ga('market_rent_growth')
       const baseCollected = period === 'scheduled' ? annualActual : period === 'stabilized' ? annualMarket : annualMarket * mktGrowth

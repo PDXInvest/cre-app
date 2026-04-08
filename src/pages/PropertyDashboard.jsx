@@ -115,7 +115,7 @@ function KV({ label, value, bold, color }) {
   )
 }
 
-export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange }) {
+export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange, opModel, onOpModelRefresh }) {
   const [dash,       setDash]       = useState({})
   const [finRow,     setFinRow]     = useState(null)
   const [rrUnits,    setRrUnits]    = useState([])
@@ -388,25 +388,60 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   const exitYear    = nv(ir.exit_year, 5)
   const goingOutCap = nv(ir.going_out_cap)/100
   const saleExpPct  = nv(ir.sale_expense, 5)/100
-  const salePrice   = goingOutCap>0 ? srcNOI/goingOutCap : 0
+
+  // Use operating model annual projections when available; fall back to constant NOI
+  const hasOpModel  = opModel?.annualProjections?.length > 0
+  const yr1NOI      = hasOpModel ? (opModel.annualProjections[0]?.noi || srcNOI) : srcNOI
+
+  // Sale price uses Year (exitYear+1) NOI / going-out cap (standard reversion)
+  const exitNOI = (() => {
+    if (!hasOpModel) return srcNOI
+    const yr = opModel.annualProjections[exitYear]  // exitYear is 1-based index → [exitYear] = year+1
+    return yr?.noi || srcNOI
+  })()
+  const salePrice   = goingOutCap>0 ? exitNOI/goingOutCap : 0
   const remBal      = loanBalance(annRate, amortYrs, loanAmt, exitYear)
   const netProceeds = salePrice>0 ? salePrice*(1-saleExpPct)-remBal : 0
-  const annCF       = srcNOI-annualDS
+  const annCF       = yr1NOI - annualDS
   const coc         = totalAcq>0 ? annCF/totalAcq : null
+
+  // Stabilized info from operating model
+  const stabMonth   = opModel?.propertyStabilizedMonth
+  const stabNOI     = opModel?.stabilizedYear?.noi
 
   const levIRR = (() => {
     if (!totalAcq||exitYear<1||!salePrice) return null
     const cfs = [-totalAcq]
-    for (let yr=1; yr<=exitYear; yr++) cfs.push(annCF+(yr===exitYear?netProceeds:0))
+    if (hasOpModel) {
+      for (let yr=1; yr<=exitYear; yr++) {
+        const yNOI = opModel.annualProjections[yr-1]?.noi || srcNOI
+        const yDS  = annualDS  // constant debt service (Phase C will handle refi)
+        const yCF  = yNOI - yDS
+        cfs.push(yCF + (yr===exitYear ? netProceeds : 0))
+      }
+    } else {
+      for (let yr=1; yr<=exitYear; yr++) cfs.push(annCF+(yr===exitYear?netProceeds:0))
+    }
     return irrCalc(cfs)
   })()
   const unlevIRR = (() => {
     if (!selPrice||exitYear<1||!salePrice) return null
     const cfs = [-selPrice]
-    for (let yr=1; yr<=exitYear; yr++) cfs.push(srcNOI+(yr===exitYear?salePrice*(1-saleExpPct):0))
+    if (hasOpModel) {
+      for (let yr=1; yr<=exitYear; yr++) {
+        const yNOI = opModel.annualProjections[yr-1]?.noi || srcNOI
+        cfs.push(yNOI + (yr===exitYear ? salePrice*(1-saleExpPct) : 0))
+      }
+    } else {
+      for (let yr=1; yr<=exitYear; yr++) cfs.push(srcNOI+(yr===exitYear?salePrice*(1-saleExpPct):0))
+    }
     return irrCalc(cfs)
   })()
-  const levEM = totalAcq>0&&exitYear>0 ? (annCF*(exitYear-1)+annCF+netProceeds)/totalAcq : null
+  const levEM = totalAcq>0&&exitYear>0 ? (() => {
+    if (!hasOpModel) return (annCF*(exitYear-1)+annCF+netProceeds)/totalAcq
+    const totalCF = opModel.annualProjections.slice(0,exitYear).reduce((s,y)=>s+(y.noi-annualDS),0)
+    return (totalCF+netProceeds)/totalAcq
+  })() : null
 
   // ── CapEx ──────────────────────────────────────────────────────────────────
   const blankRow  = () => ({ id:Date.now().toString()+Math.random(), label:'', cost:'', month_start:'', month_end:'' })
@@ -728,6 +763,17 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
       {/* ═══ INVESTOR RETURNS ═══════════════════════════════════════════ */}
       <div style={card}>
         <div style={sHdr}>Investor Returns</div>
+
+        {/* Stabilized summary bar — from operating model */}
+        {hasOpModel && stabMonth != null && (
+          <div style={{ display:'flex', gap:24, padding:'10px 14px', background:'#F8F7FF', borderRadius:8, marginBottom:16, fontSize:12, flexWrap:'wrap', alignItems:'center' }}>
+            <span style={{ color:'#888', fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Stabilized</span>
+            <span>Month <strong style={{color:'#111'}}>{stabMonth}</strong></span>
+            {stabNOI > 0 && <span>Stabilized NOI <strong style={{color:'#27500A'}}>{fmtC(stabNOI)}</strong></span>}
+            {stabNOI > 0 && selPrice > 0 && <span>Stabilized cap <strong style={{color:'#111'}}>{fmtP(stabNOI/selPrice)}</strong></span>}
+          </div>
+        )}
+
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:24, marginBottom:16 }}>
           <div>
             <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>Purchase Summary</div>
@@ -735,13 +781,43 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             <KV label="Loan amount"             value={fmtC(loanAmt||null)} />
             <KV label="Total acquisition costs" value={fmtC(totalAcq||null)} bold />
             <div style={{ height:12 }}/>
-            <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>Year 01 — {incSrc} (approx)</div>
-            <KV label="NOI"                  value={fmtC(srcNOI||null)} />
+            <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>
+              {hasOpModel ? 'Year 01 — Operating model' : `Year 01 — ${incSrc} (static)`}
+            </div>
+            <KV label="NOI"                  value={fmtC(yr1NOI||null)} />
             <KV label="Annual debt service"  value={fmtC(annualDS||null)} />
             <KV label="Cash flow"            value={fmtC(annCF||null)} />
             <KV label="Cash-on-Cash return"  value={coc!=null?fmtP(coc):'—'} bold
               color={coc!=null?(coc>=0.08?'#27500A':coc>=0.04?'#633806':'#791F1F'):'#ccc'} />
-            <KV label="Going-in cap rate"    value={selPrice?fmtP(srcNOI/selPrice):'—'} />
+            <KV label="Going-in cap rate"    value={selPrice&&yr1NOI?fmtP(yr1NOI/selPrice):'—'} />
+            {/* Year-by-year NOI table when op model available */}
+            {hasOpModel && opModel.annualProjections.length > 0 && (
+              <div style={{ marginTop:12 }}>
+                <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:6 }}>Projected NOI by Year</div>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                  <thead><tr>
+                    <th style={{ textAlign:'left',  padding:'3px 4px', color:'#aaa', fontWeight:500 }}>Year</th>
+                    <th style={{ textAlign:'right', padding:'3px 4px', color:'#aaa', fontWeight:500 }}>EGR</th>
+                    <th style={{ textAlign:'right', padding:'3px 4px', color:'#aaa', fontWeight:500 }}>Expenses</th>
+                    <th style={{ textAlign:'right', padding:'3px 4px', color:'#aaa', fontWeight:500 }}>NOI</th>
+                  </tr></thead>
+                  <tbody>
+                    {opModel.annualProjections.map((yr, i) => (
+                      <tr key={i} style={{ borderTop:'0.5px solid rgba(0,0,0,0.06)',
+                        background: i === exitYear ? '#EAF3DE' : 'transparent',
+                        fontWeight: i === exitYear ? 600 : 400 }}>
+                        <td style={{ padding:'3px 4px', color:'#555' }}>
+                          Yr {yr.year}{i===exitYear?' (exit)':i===exitYear+1?' (sale NOI)':''}
+                        </td>
+                        <td style={{ padding:'3px 4px', textAlign:'right' }}>{fmtC(yr.egr)}</td>
+                        <td style={{ padding:'3px 4px', textAlign:'right', color:'#888' }}>{fmtC(yr.expenses)}</td>
+                        <td style={{ padding:'3px 4px', textAlign:'right', color:yr.noi>0?'#27500A':'#791F1F' }}>{fmtC(yr.noi)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
           <div>
             <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>Exit Assumptions</div>
@@ -753,8 +829,9 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             </div>
             <div style={{ marginBottom:12 }}><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Sale expense %</div>
               <input type="number" value={ir.sale_expense||''} onChange={e=>setIR('sale_expense',e.target.value)} placeholder="5" step="0.5" style={inp}/></div>
-            <KV label="Exit year NOI (est.)" value={fmtC(srcNOI||null)} />
+            <KV label={`Year ${exitYear+1} NOI (sale basis)`} value={fmtC(exitNOI||null)} />
             <KV label="Sale price"           value={fmtC(salePrice||null)} />
+            <KV label="Remaining loan balance" value={fmtC(remBal||null)} />
             <KV label="Sale proceeds (net)"  value={fmtC(netProceeds||null)} bold />
           </div>
         </div>
@@ -763,7 +840,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             {[
               { label:'Unlevered IRR',   val:unlevIRR!=null?fmtP(unlevIRR):'—', col:unlevIRR!=null&&unlevIRR>=0.08?'#27500A':unlevIRR>=0.05?'#633806':'#791F1F' },
               { label:'Levered IRR',     val:levIRR!=null?fmtP(levIRR):'—',     col:levIRR!=null&&levIRR>=0.15?'#27500A':levIRR>=0.08?'#633806':'#791F1F' },
-              { label:'Equity multiple', val:levEM!=null?fmtX(levEM):'—',     col:levEM!=null&&levEM>=2?'#27500A':levEM>=1.5?'#633806':'#791F1F' },
+              { label:'Equity multiple', val:levEM!=null?fmtX(levEM):'—',       col:levEM!=null&&levEM>=2?'#27500A':levEM>=1.5?'#633806':'#791F1F' },
               { label:'Cash-on-Cash',    val:coc!=null?fmtP(coc):'—',           col:coc!=null&&coc>=0.08?'#27500A':coc>=0.04?'#633806':'#791F1F' },
             ].map(({ label,val,col }) => (
               <div key={label} style={{ textAlign:'center' }}>
@@ -773,7 +850,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             ))}
           </div>
         )}
-        <div style={{ fontSize:10, color:'#bbb', marginTop:8 }}>* Returns use constant NOI. Full IRR with projected growth available in Phase B.</div>
+        {!hasOpModel && <div style={{ fontSize:10, color:'#bbb', marginTop:8 }}>* Add rent roll + growth assumptions to enable operating model projections.</div>}
       </div>
 
       {/* ═══ REFINANCE ══════════════════════════════════════════════════ */}

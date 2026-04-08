@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { runOperatingModel, buildGA, buildT12Expenses } from '../utils/operatingModel'
 import { supabase } from '../supabase'
 import Papa from 'papaparse'
 import RentRoll from './RentRoll'
@@ -427,6 +428,8 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
   const [benchDateRange, setBenchDateRange] = useState(180)
   const [benchStats,     setBenchStats]     = useState(null)
   const [benchComps,     setBenchComps]     = useState([])
+  // Operating model output
+  const [opModel,        setOpModel]        = useState(null)
 
   useEffect(() => { loadProposal() }, [proposalId])
 
@@ -509,6 +512,50 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
     ].map(col => ({ label: col.label, ...(colStats(col.comps) || { count: 0 }) }))
     setBenchStats(stats)
   }, [benchComps.length, benchDateRange, proposal?.id])
+
+  // ── Operating model — recompute when rent roll, financials, or dashboard changes ──
+  async function computeOpModel() {
+    if (!proposal) return
+    const pr = proposal.properties || {}
+    try {
+      const [rrRes, finRes, settRes, dashRes] = await Promise.all([
+        supabase.from('rent_roll_units').select('*').eq('proposal_id', proposal.id),
+        supabase.from('proposal_financials').select('*').eq('proposal_id', proposal.id).maybeSingle(),
+        supabase.from('app_settings').select('*').eq('key', 'growth_assumptions').maybeSingle(),
+        supabase.from('proposal_dashboard').select('data').eq('proposal_id', proposal.id).maybeSingle(),
+      ])
+      const units       = rrRes.data || []
+      const finRow      = finRes.data
+      const gaDefaults  = settRes.data?.value || {}
+      const dash        = dashRes.data?.data || {}
+      const acq         = dash.acquisition || {}
+      const exitYear    = Number(dash.inv_returns?.exit_year) || 5
+      const ga          = buildGA(finRow, gaDefaults)
+      const t12Exp      = buildT12Expenses(finRow)
+      const totalUnits  = units.length || Number(pr.total_units) || 1
+      const result = runOperatingModel({
+        units,
+        ga,
+        t12Expenses:    t12Exp,
+        totalUnits,
+        closeDate:      acq.close_date || new Date().toISOString().slice(0, 10),
+        valueAddCapex:  dash.value_add_capex || [],
+        exitYear,
+      })
+      setOpModel(result)
+      // Write stabilized_month back to each rent roll unit if it changed
+      await Promise.all(
+        units.map((u, i) => {
+          const newStab = result.unitStabilizedMonths[i]
+          if (newStab == null || newStab === u.stabilized_month) return Promise.resolve()
+          return supabase.from('rent_roll_units').update({ stabilized_month: newStab }).eq('id', u.id)
+        })
+      )
+    } catch (e) { console.error('computeOpModel:', e) }
+  }
+
+  // Run operating model on mount and whenever proposal id changes
+  useEffect(() => { computeOpModel() }, [proposal?.id])
 
   async function saveSIField(field, value) {
     siDashRef.current = { ...siDashRef.current, [field]: parseFloat(value) || null }
@@ -630,7 +677,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
               </div>
             </div>
           </div>
-          <PropertyDashboard proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} />
+          <PropertyDashboard proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} opModel={opModel} onOpModelRefresh={computeOpModel} />
         </div>
       )}
 
@@ -647,7 +694,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       )}
 
       {tab === 'financials' && (
-        <Financials proposal={proposal} />
+        <Financials proposal={proposal} opModel={opModel} />
       )}
     </div>
   )
