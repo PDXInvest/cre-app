@@ -369,8 +369,8 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
       ...p, market_pricing:{
         ...(p.market_pricing||{}),
         investor_floor:   floor,
-        band_high:        roundTo5k(floor*1.25),
-        band_low:         roundTo5k(aggressive*0.90),
+        band_low:         roundTo5k(floor*1.25),
+        band_high:        roundTo5k(aggressive*0.90),
         suggested_price:  dscrRow?.price ? roundTo5k(dscrRow.price) : floor,
         aggressive_price: aggressive,
       }
@@ -378,12 +378,10 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   }
 
   // Auto-fill band if it's empty and we have pricing data
+  // Always recompute band defaults from pricing rows so stored keys are never stale
   useEffect(() => {
-    const mpFilled = mp.investor_floor || mp.suggested_price || mp.aggressive_price
-    if (!mpFilled) {
-      const vp = pricingRows.map(r => r.price).filter(p => p&&p>0)
-      if (vp.length >= 2) calcBandDefaults()
-    }
+    const vp = pricingRows.map(r => r.price).filter(p => p&&p>0)
+    if (vp.length >= 2) calcBandDefaults()
   }, [pricingRows.map(r => r.price).join(','), proposal.id])
 
   // ── Investor returns ────────────────────────────────────────────────────────
@@ -712,17 +710,16 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr', gap:12 }}>
           {[
-            { label:'Investor floor price',  key:'investor_floor',   sub:'Min of all targets' },
-            { label:'Market band — high',    key:'band_high',        sub:'Floor × 1.25' },
-            { label:'Market band — low',     key:'band_low',         sub:'90% of aggressive' },
-            { label:'Suggested list price',  key:'suggested_price',  sub:'Target DSCR price' },
-            { label:'Aggressive list price', key:'aggressive_price', sub:'90% of max target' },
-          ].map(({ label,key,sub }) => (
+            { label:'Investor floor price',  key:'investor_floor'   },
+            { label:'Market band — low',     key:'band_low'         },
+            { label:'Market band — high',    key:'band_high'        },
+            { label:'Aggressive list price', key:'aggressive_price' },
+            { label:'Suggested list price',  key:'suggested_price'  },
+                    ].map(({ label, key }) => (
             <div key={key}>
               <div style={{ fontSize:11, color:'#666', marginBottom:2 }}>{label}</div>
               <input type="number" value={mp[key]||''} onChange={e=>setMP(key,e.target.value)} style={inp}/>
               {mp[key] && <div style={{ fontSize:11, color:'#111', fontWeight:500, marginTop:2 }}>{fmtC(mp[key])}</div>}
-              <div style={{ fontSize:10, color:'#bbb' }}>{sub}</div>
             </div>
           ))}
         </div>
