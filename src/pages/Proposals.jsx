@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import Papa from 'papaparse'
 import RentRoll from './RentRoll'
 import Financials from './Financials'
+import PropertyDashboard from './PropertyDashboard'
 
 const STAGES = ['Prospect', 'Proposal', 'Exclusive Rep', 'Active', 'Under Contract', 'Sold', 'Lost']
 const STAGE_STYLE = {
@@ -232,6 +233,8 @@ function NewProposal({ onBack, onCreated }) {
   const [asking, setAsking] = useState('')
   const [stage, setStage] = useState('Prospect')
   const [notes, setNotes] = useState('')
+  const [statedIncome, setStatedIncome] = useState('')
+  const [statedExpenses, setStatedExpenses] = useState('')
   const [saving, setSaving] = useState(false)
   const [manualFields, setManualFields] = useState({})
 
@@ -270,6 +273,13 @@ function NewProposal({ onBack, onCreated }) {
       property_id: propId, stage, asking_price: parseFloat(asking) || null, notes,
     }).select().single()
     if (error) { console.error(error); setSaving(false); return }
+    // Create dashboard row with stated income if provided
+    if (statedIncome || statedExpenses) {
+      await supabase.from('proposal_dashboard').insert({
+        proposal_id: data.id,
+        data: { stated_income: parseFloat(statedIncome) || null, stated_expenses: parseFloat(statedExpenses) || null },
+      }).catch(() => {})
+    }
     setSaving(false)
     onCreated(data.id)
   }
@@ -369,6 +379,22 @@ function NewProposal({ onBack, onCreated }) {
             <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Notes</div>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Discovery call notes..." style={{ width: '100%', minHeight: 70, padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 4 }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Stated gross income</div>
+              <input type="number" value={statedIncome} onChange={e => setStatedIncome(e.target.value)} placeholder="e.g. 530000" style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Stated expenses</div>
+              <input type="number" value={statedExpenses} onChange={e => setStatedExpenses(e.target.value)} placeholder="e.g. 210000" style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Stated NOI (auto)</div>
+              <div style={{ padding: '7px 10px', border: '0.5px solid #eee', borderRadius: 8, fontSize: 13, background: '#f9f9f9', color: '#333' }}>
+                {statedIncome || statedExpenses ? '$' + Math.round((parseFloat(statedIncome)||0) - (parseFloat(statedExpenses)||0)).toLocaleString() : '—'}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -393,6 +419,10 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
   const [editStage, setEditStage] = useState('')
   const [editAsking, setEditAsking] = useState('')
   const [editNotes, setEditNotes] = useState('')
+  // Stated Income (top-right card — stored in proposal_dashboard)
+  const [siIncome,   setSiIncome]   = useState('')
+  const [siExpenses, setSiExpenses] = useState('')
+  const siDashRef = { current: {} }
 
   useEffect(() => { loadProposal() }, [proposalId])
 
@@ -403,7 +433,21 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
     setEditStage(data?.stage || 'Prospect')
     setEditAsking(data?.asking_price || '')
     setEditNotes(data?.notes || '')
+    // Load stated income from proposal_dashboard
+    const { data: dashRow } = await supabase.from('proposal_dashboard').select('data').eq('proposal_id', proposalId).maybeSingle()
+    if (dashRow?.data) {
+      siDashRef.current = dashRow.data
+      setSiIncome(dashRow.data.stated_income || '')
+      setSiExpenses(dashRow.data.stated_expenses || '')
+    }
     setLoading(false)
+  }
+
+  async function saveSIField(field, value) {
+    siDashRef.current = { ...siDashRef.current, [field]: parseFloat(value) || null }
+    const { data: ex } = await supabase.from('proposal_dashboard').select('id').eq('proposal_id', proposalId).maybeSingle()
+    if (ex) await supabase.from('proposal_dashboard').update({ data: siDashRef.current }).eq('proposal_id', proposalId)
+    else    await supabase.from('proposal_dashboard').insert({ proposal_id: proposalId, data: siDashRef.current })
   }
 
   async function saveProposal() {
@@ -450,51 +494,76 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       </div>
 
       {tab === 'overview' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-            <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Property info</div>
-            {kv('Address', pr.street)}
-            {kv('Sub-market', pr.sub_market)}
-            {kv('Type', pr.property_sub_type)}
-            {kv('Total units', pr.total_units)}
-            {kv('Building SF', pr.building_sf ? pr.building_sf.toLocaleString() + ' SF' : null)}
-            {kv('Year built', pr.year_built)}
-            {kv('Year built era', pr.year_built_era)}
-            {kv('# of buildings', pr.num_buildings)}
-            {kv('Property class', pr.property_class)}
-            {kv('Tax ID', pr.tax_id)}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-              <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Proposal</div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Stage</div>
-                <select value={editStage} onChange={e => setEditStage(e.target.value)} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }}>
-                  {STAGES.map(s => <option key={s}>{s}</option>)}
-                </select>
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+            {/* Left col: Property Info + Ownership stacked */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Property info</div>
+                {kv('Address', pr.street)}
+                {kv('Sub-market', pr.sub_market)}
+                {kv('Type', pr.property_sub_type)}
+                {kv('Total units', pr.total_units)}
+                {kv('Building SF', pr.building_sf ? pr.building_sf.toLocaleString() + ' SF' : null)}
+                {kv('Year built', pr.year_built)}
+                {kv('Year built era', pr.year_built_era)}
+                {kv('# of buildings', pr.num_buildings)}
+                {kv('Property class', pr.property_class)}
+                {kv('Tax ID', pr.tax_id)}
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Asking price</div>
-                <input type="number" value={editAsking} onChange={e => setEditAsking(e.target.value)} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }} />
+              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Ownership</div>
+                {kv('Owner LLC', pr.owner_llc)}
+                {kv('Contact', pr.owner_contact)}
+                {kv('Last sale date', pr.last_sale_date)}
+                {kv('Last sale price', pr.last_sale_amount ? '$' + Math.round(pr.last_sale_amount).toLocaleString() : null)}
+                {kv('Last $/unit', pr.last_sale_price_per_unit ? '$' + Math.round(pr.last_sale_price_per_unit).toLocaleString() : null)}
+                {kv('Last cap rate', pr.last_cap_rate ? pr.last_cap_rate + '%' : null)}
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Notes</div>
-                <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} style={{ width: '100%', minHeight: 70, padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
-              </div>
-              <button onClick={saveProposal} disabled={saving} style={{ padding: '7px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: saving ? 0.6 : 1 }}>
-                {saving ? 'Saving...' : 'Save'}
-              </button>
             </div>
-            <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-              <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Ownership</div>
-              {kv('Owner LLC', pr.owner_llc)}
-              {kv('Contact', pr.owner_contact)}
-              {kv('Last sale date', pr.last_sale_date)}
-              {kv('Last sale price', pr.last_sale_amount ? '$' + Math.round(pr.last_sale_amount).toLocaleString() : null)}
-              {kv('Last $/unit', pr.last_sale_price_per_unit ? '$' + Math.round(pr.last_sale_price_per_unit).toLocaleString() : null)}
-              {kv('Last cap rate', pr.last_cap_rate ? pr.last_cap_rate + '%' : null)}
+            {/* Right col: Proposal card + Stated Income card */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Proposal</div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Stage</div>
+                  <select value={editStage} onChange={e => setEditStage(e.target.value)} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }}>
+                    {STAGES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Asking price</div>
+                  <input type="number" value={editAsking} onChange={e => setEditAsking(e.target.value)} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }} />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Notes</div>
+                  <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} style={{ width: '100%', minHeight: 70, padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
+                </div>
+                <button onClick={saveProposal} disabled={saving} style={{ padding: '7px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+              {/* Stated Income */}
+              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
+                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Stated Income</div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Gross income</div>
+                  <input type="number" value={siIncome} onChange={e => setSiIncome(e.target.value)} onBlur={e => saveSIField('stated_income', e.target.value)} placeholder="e.g. 530000" style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Operating expenses</div>
+                  <input type="number" value={siExpenses} onChange={e => setSiExpenses(e.target.value)} onBlur={e => saveSIField('stated_expenses', e.target.value)} placeholder="e.g. 210000" style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 10px', background: '#F9F9F9', borderRadius: 8, fontSize: 12 }}>
+                  <span style={{ color: '#888' }}>Stated NOI</span>
+                  <span style={{ fontWeight: 600, color: '#111' }}>
+                    {(parseFloat(siIncome)||0) - (parseFloat(siExpenses)||0) ? '$' + Math.round((parseFloat(siIncome)||0) - (parseFloat(siExpenses)||0)).toLocaleString() : '—'}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
+          <PropertyDashboard proposal={proposal} />
         </div>
       )}
 
