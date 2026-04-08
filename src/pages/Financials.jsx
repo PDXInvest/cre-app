@@ -192,7 +192,7 @@ const fmt$ = v => { const n = Number(v); return isNaN(n) || n === 0 ? '—' : (n
 /* ═══════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════ */
-export default function Financials({ proposal, opModel }) {
+export default function Financials({ proposal, opModel, opModelError, onRecomputeOpModel }) {
   const [data, setData] = useState(null)
   const [rentRollUnits, setRentRollUnits] = useState([])
   const [defaults, setDefaults] = useState({})
@@ -623,6 +623,7 @@ export default function Financials({ proposal, opModel }) {
           <button onClick={() => setSection('annual')} style={tabBtn(section === 'annual')}>Income Statement</button>
           <button onClick={() => setSection('monthly')} style={tabBtn(section === 'monthly')}>T-12 Monthly Detail</button>
           <button onClick={() => setSection('assumptions')} style={tabBtn(section === 'assumptions')}>Growth Assumptions</button>
+          <button onClick={() => setSection('opmodel')} style={tabBtn(section === 'opmodel')}>Operating Model</button>
         </div>
         <button onClick={save} disabled={saving} style={{ padding: '6px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, fontSize: 12, opacity: saving ? 0.6 : 1 }}>
           {saving ? 'Saving...' : 'Save Financials'}
@@ -896,8 +897,9 @@ export default function Financials({ proposal, opModel }) {
                           value={overrideDisplay()}
                           onChange={handleOverrideChange}
                           onFocus={selectOnFocus}
-                          style={{ ...numInput, fontSize: 12 }}
-                          placeholder=""
+                          style={{ ...numInput, fontSize: 12, color: hasOv ? '#3C3489' : '#111' }}
+                          placeholder={rawDefault != null && rawDefault !== '' ? fmtDisplay(rawDefault).replace('—','') : 'same as default'}
+                          title={hasOv ? 'Override active — click ↩ to reset to default' : 'Using default value. Type to override for this proposal.'}
                         />
                       </td>
                       <td style={{ padding: cellPad, textAlign: 'right', borderBottom: borderC, borderRight: borderC, fontWeight: 500, color: hasOv ? '#3C3489' : '#333' }}>{fmtDisplay(rawEff)}</td>
@@ -913,6 +915,201 @@ export default function Financials({ proposal, opModel }) {
           <div style={{ padding: '8px 12px', fontSize: 11, color: '#888', borderTop: borderC }}>
             Enter percentages as whole numbers (e.g., 3.50 = 3.50%). Dollar amounts are annual per-unit. Leave blank to use the default. Purple highlights indicate proposal-level overrides.
           </div>
+        </div>
+      )}
+
+      {section === 'opmodel' && (
+        <div style={{ padding: '0 0 24px 0' }}>
+          {/* Always-visible header with recompute button */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 4px 8px' }}>
+            <div style={{ display: 'flex', gap: 20, fontSize: 12, flexWrap: 'wrap' }}>
+              {opModel && <>
+                <span style={{ color: '#888' }}>Property stabilizes: <strong style={{ color: '#111' }}>Month {opModel.propertyStabilizedMonth}</strong></span>
+                {opModel.stabilizedYear?.noi > 0 && <span style={{ color: '#888' }}>Stabilized NOI: <strong style={{ color: '#27500A' }}>{fmt$(opModel.stabilizedYear.noi)}</strong></span>}
+              </>}
+              {opModelError && <span style={{ color: '#791F1F', fontSize: 12 }}>Error: {opModelError}</span>}
+            </div>
+            {onRecomputeOpModel && (
+              <button onClick={onRecomputeOpModel}
+                style={{ padding: '5px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 7, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                ↻ Recompute
+              </button>
+            )}
+          </div>
+
+          {!opModel ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#888', fontSize: 13 }}>
+              Click "Recompute" above to generate the operating model.
+            </div>
+          ) : (
+            <>
+              {/* ── Per-unit rent schedule ── */}
+              {opModel._unitRentSchedule?.length > 0 && (
+                <>
+                  <div style={{ fontWeight: 600, fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '8px 4px 4px' }}>Per-Unit Rent Schedule</div>
+                  <div style={{ overflowX: 'auto', borderRadius: 8, border: borderC, marginBottom: 16 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ background: '#F8F8F8', borderBottom: borderC }}>
+                          <th style={{ padding: cellPad, textAlign: 'left', fontWeight: 600, color: '#555', whiteSpace: 'nowrap' }}>Unit</th>
+                          <th style={{ padding: cellPad, textAlign: 'right', fontWeight: 500, color: '#888' }}>Current</th>
+                          <th style={{ padding: cellPad, textAlign: 'right', fontWeight: 500, color: '#888' }}>Market</th>
+                          <th style={{ padding: cellPad, textAlign: 'right', fontWeight: 500, color: '#888' }}>% Mkt</th>
+                          <th style={{ padding: cellPad, textAlign: 'right', fontWeight: 600, color: '#27500A', whiteSpace: 'nowrap' }}>Stab Mo</th>
+                          {opModel.annualProjections.slice(0, -1).map((_, yi) => (
+                            <th key={yi} style={{ padding: cellPad, textAlign: 'right', fontWeight: 500, color: '#888', whiteSpace: 'nowrap' }}>Yr {yi + 1}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {opModel._unitRentSchedule.map((unitRow, i) => (
+                          <tr key={i} style={{ borderBottom: borderC }}>
+                            <td style={{ padding: cellPad, fontWeight: 500 }}>{unitRow.label}</td>
+                            <td style={{ padding: cellPad, textAlign: 'right' }}>{fmt$(unitRow.currentRent)}</td>
+                            <td style={{ padding: cellPad, textAlign: 'right', color: '#888' }}>{fmt$(unitRow.marketRent)}</td>
+                            <td style={{ padding: cellPad, textAlign: 'right', fontWeight: 500,
+                              color: unitRow.pctOfMarket >= 0.9 ? '#27500A' : unitRow.pctOfMarket >= 0.7 ? '#633806' : '#791F1F' }}>
+                              {unitRow.marketRent > 0 ? (unitRow.pctOfMarket * 100).toFixed(0) + '%' : '—'}
+                            </td>
+                            <td style={{ padding: cellPad, textAlign: 'right', fontWeight: 600, color: '#27500A' }}>
+                              {unitRow.stabMonth == null ? '—'
+                                : unitRow.stabMonth === 0 ? 'Close'
+                                : `Mo ${unitRow.stabMonth} (Yr ${(unitRow.stabMonth/12).toFixed(1)})`}
+                            </td>
+                            {unitRow.annualRents.map((r, yi) => (
+                              <td key={yi} style={{ padding: cellPad, textAlign: 'right',
+                                color: unitRow.marketRent > 0 && r >= unitRow.marketRent * 0.9 ? '#27500A' : '#333' }}>
+                                {fmt$(r)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+
+              {/* ── Annual Pro Forma — Excel-style layout ── */}
+              <div style={{ fontWeight: 600, fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '4px 4px 4px' }}>Annual Pro Forma</div>
+              <div style={{ overflowX: 'auto', borderRadius: 8, border: borderC }}>
+                {(() => {
+                  const yrs = opModel.annualProjections
+                  const t12c = code => {
+                    const months = Object.values(data?.t12_monthly || {})
+                    return months.reduce((s, m) => s + (Number(m?.[code]) || 0), 0)
+                  }
+                  const t12g = (grp, codes) => {
+                    const ds = codes.reduce((s, c) => s + t12c(c), 0)
+                    return ds !== 0 ? ds : t12c(grp)
+                  }
+                  const t12RentIncome  = t12g('collected_rent', ['collected_rent'])
+                  const t12Rubs        = t12g('rubs', ['rubs_electric','rubs_water_sewer','rubs_gas','rubs_trash','rubs_combined'])
+                  const t12Parking     = t12g('parking', ['park_parking'])
+                  const t12Storage     = t12g('storage', ['storage_income'])
+                  const t12OtherInc    = t12g('other_income', ['oi_tenant_chargeback','oi_application_fees','oi_insurance_services','oi_deposit_forfeit','oi_interest','oi_late_charges','oi_nsf_fees','oi_laundry','oi_pet_rent','oi_misc'])
+                  const t12Vacancy     = -(t12RentIncome * ga('vacancy_rate'))
+                  const t12Concessions = -(t12RentIncome * ga('concessions_pct'))
+                  const t12EGR         = t12RentIncome + t12Rubs + t12Parking + t12Storage + t12OtherInc + t12Vacancy + t12Concessions
+                  const t12PropTax     = t12g('property_taxes', ['ptax_property'])
+                  const t12OthTax      = t12g('other_taxes', ['otax_state_local','otax_other'])
+                  const t12Ins         = ga('insurance_per_unit') * totalUnits
+                  const t12Util        = ga('utilities_per_unit') * totalUnits
+                  const t12PropMgt     = t12EGR > 0 ? t12EGR * ga('property_mgmt_pct') : 0
+                  const t12RM          = t12g('repairs_maintenance', ['rm_general_maint','rm_general_repair','rm_cleaning','rm_supplies','rm_painting','rm_hvac','rm_plumbing','rm_appliance','rm_labor','rm_pest','rm_misc'])
+                  const t12Land        = t12g('landscaping', ['land_landscaping'])
+                  const t12Turn        = ga('turnover_per_unit') * totalUnits
+                  const t12CapRes      = ga('cap_reserves_per_unit') * totalUnits
+                  const t12Sec         = t12g('security', ['sec_security'])
+                  const t12Contract    = t12g('contract_services', ['conserv_services'])
+                  const t12Adv         = t12g('advertising', ['mark_leasing','mark_advertising','mark_internet'])
+                  const t12Payroll     = t12g('payroll', ['pay_payroll'])
+                  const t12Admin       = t12g('administrative', ['admin_licenses','admin_collection','admin_dues','admin_postage','admin_bank','admin_onboarding','admin_supplies'])
+                  const t12MiscExp     = t12g('misc', ['misc_expenses'])
+                  const t12TotalExp    = t12PropTax + t12OthTax + t12Ins + t12Util + t12PropMgt + t12RM + t12Land + t12Turn + t12CapRes + t12Sec + t12Contract + t12Adv + t12Payroll + t12Admin + t12MiscExp
+                  const t12NOI         = t12EGR - t12TotalExp
+
+                  const colStyle = (isFirst) => ({ padding: cellPad, textAlign: isFirst ? 'left' : 'right', borderBottom: borderC, whiteSpace: 'nowrap' })
+                  const hdrStyle2 = (isFirst) => ({ ...colStyle(isFirst), background: '#F0F0F0', fontWeight: 600, fontSize: 10, color: '#555', textTransform: 'uppercase', letterSpacing: '0.03em' })
+                  const secStyle = (isFirst) => ({ ...colStyle(isFirst), background: '#F8F8F8', fontWeight: 700, fontSize: 11, color: '#111', borderTop: '1px solid rgba(0,0,0,0.12)' })
+                  const totalStyle = (isFirst) => ({ ...colStyle(isFirst), fontWeight: 700, color: '#111', background: '#F8F8F8', borderTop: '0.5px solid rgba(0,0,0,0.15)' })
+                  const noiStyle = (isFirst, v) => ({ ...colStyle(isFirst), fontWeight: 700, color: (v||0) > 0 ? '#27500A' : '#791F1F', background: '#EAF3DE', borderTop: '1px solid rgba(0,0,0,0.15)' })
+                  const lastYr = yrs[yrs.length - 1]?.year
+
+                  const Row = ({ label, t12val, vals, bold, section, total, noi: isNoi, neg, indent, dash: showDash }) => {
+                    const style = isNoi ? noiStyle : total ? totalStyle : section ? secStyle : (i) => colStyle(i)
+                    return (
+                      <tr>
+                        <td style={{ ...colStyle(true), paddingLeft: indent ? 20 : cellPad.split(' ')[1] || 8, fontWeight: bold||section||total||isNoi ? 600 : 400, color: section ? '#333' : '#555', background: isNoi ? '#EAF3DE' : total ? '#F8F8F8' : section ? '#F8F8F8' : 'transparent' }}>
+                          {label}
+                        </td>
+                        <td style={{ ...colStyle(false), background: isNoi ? '#EAF3DE' : total ? '#F8F8F8' : section ? '#F8F8F8' : 'transparent', fontWeight: bold||total||isNoi ? 600 : 400, color: isNoi ? ((t12val||0)>0?'#27500A':'#791F1F') : '#555' }}>
+                          {showDash || t12val == null || t12val === 0 ? '—' : fmt$(neg ? -Math.abs(t12val) : t12val)}
+                        </td>
+                        {vals.map((v, i) => (
+                          <td key={i} style={{ padding: cellPad, textAlign: 'right', borderBottom: borderC, fontWeight: bold||total||isNoi ? 600 : 400, whiteSpace: 'nowrap',
+                            background: isNoi ? '#EAF3DE' : total ? '#F8F8F8' : section ? '#F8F8F8' : 'transparent',
+                            color: isNoi ? ((v||0)>0?'#27500A':'#791F1F') : '#555' }}>
+                            {showDash || v == null || v === 0 ? '—' : fmt$(neg ? -Math.abs(v) : v)}
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  }
+
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 700 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...hdrStyle2(true), minWidth: 180 }}>Line Item</th>
+                          <th style={{ ...hdrStyle2(false), minWidth: 75 }}>T-12</th>
+                          {yrs.map(yr => (
+                            <th key={yr.year} style={{ ...hdrStyle2(false), minWidth: 75, color: yr.year === lastYr ? '#3C3489' : '#555' }}>
+                              {yr.year === lastYr ? `Year ${yr.year} †` : `Year ${yr.year}`}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <Row label="OPERATING INCOME" t12val={null} vals={yrs.map(()=>null)} section />
+                        <Row label="Unit Rental Income" indent t12val={t12RentIncome} vals={yrs.map(y=>y.grossRent)} />
+                        <Row label="RUBS" indent t12val={t12Rubs} vals={yrs.map(y=>y.rubsAmt)} />
+                        <Row label="Parking / Storage Income" indent t12val={t12Parking+t12Storage} vals={yrs.map(y=>(y.parkingAmt||0)+(y.storageAmt||0))} />
+                        <Row label="Other Income" indent t12val={t12OtherInc} vals={yrs.map(y=>y.otherIncAmt)} />
+                        <Row label="Gross Revenue" t12val={t12RentIncome+t12Rubs+t12Parking+t12Storage+t12OtherInc} vals={yrs.map(y=>y.grossIncome)} bold />
+                        <Row label="General Vacancy & Credit Loss" indent t12val={t12Vacancy} vals={yrs.map(y=>-y.vacancy)} neg />
+                        <Row label="Concessions" indent t12val={t12Concessions} vals={yrs.map(y=>-y.concessions)} neg />
+                        <Row label="Total Effective Gross Revenue" t12val={t12EGR} vals={yrs.map(y=>y.egr)} total />
+                        <Row label="EXPENSES" t12val={null} vals={yrs.map(()=>null)} section />
+                        <Row label="Administrative" indent t12val={t12Admin} vals={yrs.map(y=>y.expAdmin)} />
+                        <Row label="Property Taxes" indent t12val={t12PropTax} vals={yrs.map(y=>y.expPropTax)} />
+                        <Row label="Other Taxes / Fees" indent t12val={t12OthTax} vals={yrs.map(y=>y.expOthTax)} />
+                        <Row label="Property Insurance" indent t12val={t12Ins} vals={yrs.map(y=>y.expIns)} />
+                        <Row label="Utilities" indent t12val={t12Util} vals={yrs.map(y=>y.expUtil)} />
+                        <Row label="Property Management" indent t12val={t12PropMgt} vals={yrs.map(y=>y.expPropMgt)} />
+                        <Row label="Repairs & Maintenance" indent t12val={t12RM} vals={yrs.map(y=>y.expRM)} />
+                        <Row label="Landscaping" indent t12val={t12Land} vals={yrs.map(y=>y.expLand)} />
+                        <Row label="Turnover" indent t12val={t12Turn} vals={yrs.map(y=>y.expTurn)} />
+                        <Row label="Capital Reserves" indent t12val={t12CapRes} vals={yrs.map(y=>y.expCapRes)} />
+                        <Row label="Security" indent t12val={t12Sec} vals={yrs.map(y=>y.expSec)} />
+                        <Row label="Contract Services" indent t12val={t12Contract} vals={yrs.map(y=>y.expContract)} />
+                        <Row label="Advertising & Marketing" indent t12val={t12Adv} vals={yrs.map(y=>y.expAdv)} />
+                        <Row label="Payroll" indent t12val={t12Payroll} vals={yrs.map(y=>y.expPayroll)} />
+                        <Row label="Misc" indent t12val={t12MiscExp} vals={yrs.map(y=>y.expMisc)} />
+                        <Row label="Total OpEx" t12val={t12TotalExp} vals={yrs.map(y=>y.expenses)} total />
+                        <Row label="Net Operating Income" t12val={t12NOI} vals={yrs.map(y=>y.noi)} noi />
+                        <Row label="Capital Expenditures" indent t12val={0} vals={yrs.map(()=>0)} dash />
+                        <Row label="Cash Flow from Operations" t12val={t12NOI} vals={yrs.map(y=>y.noi)} bold />
+                      </tbody>
+                    </table>
+                  )
+                })()}
+              </div>
+              <div style={{ fontSize: 10, color: '#aaa', padding: '6px 4px' }}>
+                † Year {opModel.annualProjections[opModel.annualProjections.length-1]?.year} is the sale-basis NOI (going-out cap rate ÷ this value = projected sale price). To update, change exit year in the dashboard, save, then click Recompute.
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

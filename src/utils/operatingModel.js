@@ -20,7 +20,7 @@
  * Annual projections: Year 1 through exitYear + 1 (need exitYear+1 NOI for sale price).
  */
 
-const nv = (v, fb = 0) => { const x = Number(v); return isNaN(x) ? fb : x }
+const nv = (v, fb = 0) => { if (v === null || v === undefined || v === '') return fb; const x = Number(v); return isNaN(x) ? fb : x }
 
 /**
  * @param {Object} params
@@ -70,7 +70,8 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
   }
 
   // ── Build per-unit rent schedule (month 0 = close month) ─────────────────
-  const MONTHS_TO_MODEL = numProjectionYears * 12 + 12  // a bit extra
+  const MONTHS_TO_MODEL  = numProjectionYears * 12 + 12  // projection window
+  const MONTHS_FOR_STAB   = Math.max(MONTHS_TO_MODEL, 480)   // always search up to 40 yrs for stab
 
   // unit rent schedule: rentByUnit[unitIdx][month] = rent for that month
   const rentByUnit   = []
@@ -91,16 +92,16 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
     let currentRent = startRent
     let monthsToNextBump = monthsToFirstAnniversary(effDateStr)
 
-    for (let m = 0; m < MONTHS_TO_MODEL; m++) {
-      // Projected market rent for this month (grows monthly at market_rent_growth/12)
+    for (let m = 0; m < MONTHS_FOR_STAB; m++) {
+      // Projected market rent for this month (grows annually at market_rent_growth)
       const projMarket = baseMarket * Math.pow(1 + mktRentGrowth, m / 12)
       mkts[m] = projMarket
 
-      // Apply rent bump if it's an anniversary month
+      // Apply rent bump on anniversary month (m > 0 so we don't bump in close month)
       if (m > 0 && m === monthsToNextBump) {
-        const cappedRent  = currentRent * (1 + rentBumpCap)
-        const marketFloor = projMarket  // can't exceed market
-        currentRent = Math.min(cappedRent, marketFloor)
+        const cappedIncrease = currentRent * (1 + rentBumpCap)
+        // Can't go above projected market rent
+        currentRent = Math.min(cappedIncrease, projMarket)
         monthsToNextBump += 12  // next anniversary
       }
 
@@ -108,14 +109,18 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
     }
 
     // Per-unit stabilized month: first month where rent ≥ 90% of projected market
+    // Uses extended window (up to 40 yrs) so units far below market still get a real month
     let unitStab = null
-    for (let m = 0; m < MONTHS_TO_MODEL; m++) {
-      if (rents[m] >= mkts[m] * 0.9) { unitStab = m; break }
+    for (let m = 0; m < MONTHS_FOR_STAB; m++) {
+      if (mkts[m] > 0 && rents[m] >= mkts[m] * 0.9) { unitStab = m; break }
     }
     unitStabMonths.push(unitStab)
     rentByUnit.push(rents)
     mktByUnit.push(mkts)
   })
+
+  // Alias for consistent naming throughout the rest of the engine
+  const unitStabilizedMonths = unitStabMonths
 
   // ── Property stabilized month ─────────────────────────────────────────────
   // Last CapEx end month
@@ -125,7 +130,7 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
 
   // Month where aggregate rent ≥ 90% aggregate projected market
   let rentStabMonth = 0
-  for (let m = 0; m < MONTHS_TO_MODEL; m++) {
+  for (let m = 0; m < MONTHS_FOR_STAB; m++) {
     const totalRent   = rentByUnit.reduce((s, r) => s + (r[m] || 0), 0)
     const totalMarket = mktByUnit.reduce((s,  r) => s + (r[m] || 0), 0)
     if (totalMarket > 0 && totalRent >= totalMarket * 0.9) {
@@ -203,14 +208,39 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
     const expenses     = expensesForYear(y, egr)
     const noi          = egr - expenses
 
+    // Per-component breakdowns for Operating Model tab display
+    const rubsAmt    = units.reduce((s, u) => s + nv(u.market_rubs), 0) * 12 * Math.pow(1 + nv(ga.rubs_growth, 0.02), y)
+    const parkingAmt = nv(t12Expenses._parking, 0) * Math.pow(1 + nv(ga.parking_growth, 0.02), y + 1)
+    const storageAmt = nv(t12Expenses._storage, 0) * Math.pow(1 + nv(ga.storage_growth, 0.02), y + 1)
+    const otherIncAmt= nv(t12Expenses._other_income, 0) * Math.pow(1 + nv(ga.other_income_growth, 0.02), y + 1)
+    // Per-expense breakdowns
+    const expPropTax = nv(t12Expenses.property_taxes, 0)      * Math.pow(1 + nv(ga.property_tax_growth,  0.03), y + 1)
+    const expOthTax  = nv(t12Expenses.other_taxes, 0)         * Math.pow(1 + nv(ga.controllable_growth,  0.03), y + 1)
+    const expIns     = nv(ga.insurance_per_unit, 0)    * totalUnits * Math.pow(1 + nv(ga.insurance_growth,    0.03), y)
+    const expUtil    = nv(ga.utilities_per_unit, 0)    * totalUnits * Math.pow(1 + nv(ga.utilities_growth,    0.03), y)
+    const expPropMgt = egr > 0 ? egr * nv(ga.property_mgmt_pct, 0.08) : 0
+    const expRM      = nv(t12Expenses.repairs_maintenance, 0) * Math.pow(1 + nv(ga.rm_growth,             0.03), y + 1)
+    const expLand    = nv(t12Expenses.landscaping, 0)         * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+    const expTurn    = nv(ga.turnover_per_unit, 0)     * totalUnits * Math.pow(1 + nv(ga.turnover_growth,     0.03), y)
+    const expCapRes  = nv(ga.cap_reserves_per_unit, 0) * totalUnits * Math.pow(1 + nv(ga.cap_reserves_growth, 0.02), y)
+    const expSec     = nv(t12Expenses.security, 0)            * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+    const expContract= nv(t12Expenses.contract_services, 0)   * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+    const expAdv     = nv(t12Expenses.advertising, 0)         * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+    const expPayroll = nv(t12Expenses.payroll, 0)             * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+    const expAdmin   = nv(t12Expenses.administrative, 0)      * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+    const expMisc    = nv(t12Expenses.misc, 0)                * Math.pow(1 + nv(ga.controllable_growth,   0.03), y + 1)
+
     annualProjections.push({
       year:        y + 1,
       grossRent,
+      rubsAmt, parkingAmt, storageAmt, otherIncAmt,
       nonRent,
       grossIncome,
       vacancy,
       concessions,
       egr,
+      expAdmin, expPropTax, expOthTax, expIns, expUtil, expPropMgt,
+      expRM, expLand, expTurn, expCapRes, expSec, expContract, expAdv, expPayroll, expMisc,
       expenses,
       noi,
     })
@@ -245,11 +275,42 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
     noi:         stabNOI,
   }
 
+  // Key by sort_order — stable even after RentRoll's delete/reinsert save pattern
+  const unitStabMap = {}
+  units.forEach((unit, i) => {
+    const key = unit.sort_order != null ? unit.sort_order : i
+    unitStabMap[key] = unitStabilizedMonths[i]
+  })
+
+  // Build per-unit rent schedule for Operating Model tab display
+  // annualRents[yi] = end-of-year-N rent for that unit (month at end of year N)
+  const exitYrs = numProjectionYears - 1  // last projection year (not the sale-basis year)
+  const _unitRentSchedule = units.map((unit, i) => {
+    const isVacant  = unit.status === 'Vacant'
+    const startRent = isVacant ? nv(unit.market_rent) : nv(unit.actual_rent)
+    const mktRent   = nv(unit.market_rent)
+    const annualRents = []
+    for (let yr = 1; yr <= exitYrs; yr++) {
+      const endMonth = yr * 12
+      annualRents.push(endMonth < rentByUnit[i].length ? rentByUnit[i][endMonth] : startRent)
+    }
+    return {
+      label:       unit.unit_number ? `Unit ${unit.unit_number}` : `Unit ${i + 1}`,
+      currentRent: startRent,
+      marketRent:  mktRent,
+      pctOfMarket: mktRent > 0 ? startRent / mktRent : 0,
+      stabMonth:   unitStabilizedMonths[i],
+      annualRents,
+    }
+  })
+
   return {
     annualProjections,       // array of { year, grossRent, nonRent, grossIncome, vacancy, concessions, egr, expenses, noi }
     unitStabilizedMonths,    // array parallel to units[] — month offset from close
+    unitStabMap,             // { [sort_order]: stabilizedMonth } — use this in RentRoll
     propertyStabilizedMonth, // single integer
     stabilizedYear,          // 12-month NOI snapshot for Income Statement Stabilized column
+    _unitRentSchedule,       // per-unit data for Operating Model tab display
   }
 }
 
@@ -260,12 +321,13 @@ export function runOperatingModel({ units, ga, t12Expenses, totalUnits, closeDat
 export function buildGA(proposalFinancials, appSettingsDefaults) {
   const overrides = proposalFinancials?.growth_assumptions || {}
   const defaults  = appSettingsDefaults || {}
+  // Returns null when not set — engine nv(val, fallback) will then use its own safe default
   const get = code => {
     const ov = overrides[code]
     if (ov != null && ov !== '') return Number(ov)
     const df = defaults[code]
     if (df != null && df !== '') return Number(df)
-    return 0
+    return null
   }
   // Return all codes used by the engine
   return {

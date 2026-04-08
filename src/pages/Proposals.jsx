@@ -430,6 +430,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
   const [benchComps,     setBenchComps]     = useState([])
   // Operating model output
   const [opModel,        setOpModel]        = useState(null)
+  const [opModelError,   setOpModelError]   = useState(null)
 
   useEffect(() => { loadProposal() }, [proposalId])
 
@@ -519,7 +520,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
     const pr = proposal.properties || {}
     try {
       const [rrRes, finRes, settRes, dashRes] = await Promise.all([
-        supabase.from('rent_roll_units').select('*').eq('proposal_id', proposal.id),
+        supabase.from('rent_roll_units').select('*').eq('proposal_id', proposal.id).order('sort_order', { ascending: true }),
         supabase.from('proposal_financials').select('*').eq('proposal_id', proposal.id).maybeSingle(),
         supabase.from('app_settings').select('*').eq('key', 'growth_assumptions').maybeSingle(),
         supabase.from('proposal_dashboard').select('data').eq('proposal_id', proposal.id).maybeSingle(),
@@ -543,19 +544,24 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
         exitYear,
       })
       setOpModel(result)
-      // Write stabilized_month back to each rent roll unit if it changed
+      setOpModelError(null)
+      // Write stabilized_month back using sort_order key (matches unitStabMap)
       await Promise.all(
         units.map((u, i) => {
-          const newStab = result.unitStabilizedMonths[i]
+          const key = u.sort_order != null ? u.sort_order : i
+          const newStab = result.unitStabMap?.[key]
           if (newStab == null || newStab === u.stabilized_month) return Promise.resolve()
           return supabase.from('rent_roll_units').update({ stabilized_month: newStab }).eq('id', u.id)
         })
       )
-    } catch (e) { console.error('computeOpModel:', e) }
+    } catch (e) {
+      console.error('computeOpModel failed:', e)
+      setOpModelError(e?.message || String(e))
+    }
   }
 
-  // Run operating model on mount and whenever proposal id changes
-  useEffect(() => { computeOpModel() }, [proposal?.id])
+  // Run operating model after proposal loads (watches proposal object, not just id)
+  useEffect(() => { if (proposal?.id) computeOpModel() }, [proposal])
 
   async function saveSIField(field, value) {
     siDashRef.current = { ...siDashRef.current, [field]: parseFloat(value) || null }
@@ -677,7 +683,7 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
               </div>
             </div>
           </div>
-          <PropertyDashboard proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} opModel={opModel} onOpModelRefresh={computeOpModel} />
+          <PropertyDashboard proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} opModel={opModel} onOpModelRefresh={computeOpModel} onDashSaved={computeOpModel} />
         </div>
       )}
 
@@ -690,11 +696,11 @@ function ProposalDetail({ proposalId, onBack, onUpdated }) {
       )}
 
       {tab === 'rent roll' && (
-        <RentRoll proposal={proposal} />
+        <RentRoll proposal={proposal} opModel={opModel} onSaved={computeOpModel} />
       )}
 
       {tab === 'financials' && (
-        <Financials proposal={proposal} opModel={opModel} />
+        <Financials proposal={proposal} opModel={opModel} opModelError={opModelError} onRecomputeOpModel={computeOpModel} />
       )}
     </div>
   )

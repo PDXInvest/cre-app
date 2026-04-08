@@ -14,7 +14,7 @@ const cellPad = '4px 6px'
 
 function fmt$(v) { return v ? '$' + Math.round(Number(v)).toLocaleString() : '—' }
 
-export default function RentRoll({ proposal }) {
+export default function RentRoll({ proposal, opModel, onSaved }) {
   const pr = proposal.properties || {}
   const [units, setUnits] = useState([])
   const [loading, setLoading] = useState(true)
@@ -89,6 +89,7 @@ export default function RentRoll({ proposal }) {
     setTimeout(() => setMsg(''), 3000)
     setSaving(false)
     loadUnits()
+    if (onSaved) onSaved()   // trigger operating model recomputation
   }
 
   // Summary stats
@@ -253,7 +254,22 @@ export default function RentRoll({ proposal }) {
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'market_rubs', 'number')}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right', background: '#E1F5EE', fontSize: 11 }}>{fmt$(uwRent(units[i]))}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right', background: '#E1F5EE', fontSize: 11 }}>{fmt$(uwRubs(units[i]))}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'stabilized_month', 'number')}</td>
+                  <td style={{ padding: cellPad, borderBottom: borderC }}>
+                    {(() => {
+                      // Look up by _idx which equals sort_order — stable even after save reinserts
+                      const computed = opModel?.unitStabMap?.[u._idx]
+                      if (computed !== null && computed !== undefined) {
+                        const label = computed === 0 ? 'At close' : `Mo ${computed}`
+                        return (
+                          <div style={{ textAlign: 'right', fontSize: 11 }}>
+                            <span style={{ fontWeight: 600, color: '#27500A' }}>{label}</span>
+                            <span style={{ color: '#aaa', fontSize: 10, marginLeft: 2 }}>auto</span>
+                          </div>
+                        )
+                      }
+                      return inp(i, 'stabilized_month', 'number')
+                    })()}
+                  </td>
                   <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'notes')}</td>
                   <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
                     <button onClick={() => removeUnit(i)} style={{ background: 'none', border: 'none', color: '#c00', cursor: 'pointer', fontSize: 14, padding: 0 }} title="Remove unit">×</button>

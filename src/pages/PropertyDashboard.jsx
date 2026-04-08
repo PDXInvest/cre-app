@@ -105,6 +105,10 @@ const card = { background:'#fff', borderRadius:12, border:'0.5px solid rgba(0,0,
 const sHdr = { fontSize:11, fontWeight:500, color:'#888', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:'0.75rem', paddingBottom:6, borderBottom:'0.5px solid rgba(0,0,0,0.08)' }
 const inp  = { width:'100%', padding:'7px 10px', border:'0.5px solid #ddd', borderRadius:8, fontSize:12, boxSizing:'border-box', background:'#fff' }
 const ro   = { padding:'7px 10px', border:'0.5px solid #eee', borderRadius:8, fontSize:12, background:'#f9f9f9', color:'#111', minHeight:34 }
+// Required field style — amber highlight when no value saved
+const reqInp = (val) => val != null && val !== '' && val !== 0
+  ? inp
+  : { ...inp, border:'0.5px solid #F59E0B', background:'#FFFBEB' }
 
 function KV({ label, value, bold, color }) {
   return (
@@ -115,7 +119,7 @@ function KV({ label, value, bold, color }) {
   )
 }
 
-export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange, opModel, onOpModelRefresh }) {
+export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange, opModel, onOpModelRefresh, onDashSaved }) {
   const [dash,       setDash]       = useState({})
   const [finRow,     setFinRow]     = useState(null)
   const [rrUnits,    setRrUnits]    = useState([])
@@ -190,6 +194,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
     setSaving(true)
     await upsertDash(dash)
     setSaving(false); setMsg('Saved'); setTimeout(() => setMsg(''), 2500)
+    if (onDashSaved) onDashSaved()  // recompute operating model with updated exit year etc.
   }
   async function handleIncomeSourceChange(src) {
     const nd = { ...dash, income_source:src }
@@ -282,14 +287,14 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   const askPrice    = nv(proposal.asking_price)
   const propUnits   = Math.max(nv(totalUnits), 1)
   const propSF      = Math.max(nv(pr.building_sf), 1)
-  const downPct     = nv(acq.down_pmt_pct, 25)
+  const downPct     = nv(acq.down_pmt_pct,      25)   // default 25%
   const ltv         = (100-downPct)/100
-  const annRate     = nv(acq.interest_rate)
-  const amortYrs    = nv(acq.amortization, 25)
-  const loanTermYrs = nv(acq.loan_term, 10)
-  const ioPeriod    = nv(acq.io_period)
-  const loanFeesPct   = nv(acq.loan_fees_pct)
-  const closeCostsPct = nv(acq.closing_costs_pct)
+  const annRate     = nv(acq.interest_rate,     6.5)  // default 6.5%
+  const amortYrs    = nv(acq.amortization,      25)   // default 25yr
+  const loanTermYrs = nv(acq.loan_term,         10)   // default 10yr
+  const ioPeriod    = nv(acq.io_period,         0)
+  const loanFeesPct   = nv(acq.loan_fees_pct,   1)    // default 1%
+  const closeCostsPct = nv(acq.closing_costs_pct, 2)  // default 2%
   const acqCostPct    = (downPct/100) + ltv*(loanFeesPct/100) + (closeCostsPct/100)
   const dsFactor      = annDSF(annRate, amortYrs)
 
@@ -365,41 +370,52 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
     const dscrRow = pricingRows.find(r => r.key==='target_dscr')
     const floor = roundTo5k(minP)
     const aggressive = roundTo5k(maxP*0.90)
-    setDash(p => ({
-      ...p, market_pricing:{
-        ...(p.market_pricing||{}),
-        investor_floor:   floor,
-        band_low:         roundTo5k(floor*1.25),
-        band_high:        roundTo5k(aggressive*0.90),
-        suggested_price:  dscrRow?.price ? roundTo5k(dscrRow.price) : floor,
-        aggressive_price: aggressive,
-      }
-    }))
+    const newMP = {
+      investor_floor:   floor,
+      band_low:         roundTo5k(floor*1.25),
+      band_high:        roundTo5k(aggressive*0.90),
+      suggested_price:  dscrRow?.price ? roundTo5k(dscrRow.price) : floor,
+      aggressive_price: aggressive,
+    }
+    setDash(p => {
+      const updated = { ...p, market_pricing: { ...(p.market_pricing||{}), ...newMP } }
+      // Persist immediately so values survive page reload
+      upsertDash(updated).catch(() => {})
+      return updated
+    })
   }
 
-  // Auto-fill band if it's empty and we have pricing data
-  // Always recompute band defaults from pricing rows so stored keys are never stale
+  // Stable price summary for useEffect dependency — avoids inline computation in dep array
+  const priceSummary = pricingRows.map(r => Math.round(r.price||0)).join(',')
+
+  // Recompute band defaults whenever pricing rows change
   useEffect(() => {
     const vp = pricingRows.map(r => r.price).filter(p => p&&p>0)
     if (vp.length >= 2) calcBandDefaults()
-  }, [pricingRows.map(r => r.price).join(','), proposal.id])
+  }, [priceSummary])
 
   // ── Investor returns ────────────────────────────────────────────────────────
   const exitYear    = nv(ir.exit_year, 5)
-  const goingOutCap = nv(ir.going_out_cap)/100
-  const saleExpPct  = nv(ir.sale_expense, 5)/100
+  // going_out_cap entered as whole % (e.g. "8" = 8%) — divide by 100; no default so user must enter
+  const goingOutCap = nv(ir.going_out_cap, 0) / 100
+  const saleExpPct  = nv(ir.sale_expense, 5) / 100
 
   // Use operating model annual projections when available; fall back to constant NOI
   const hasOpModel  = opModel?.annualProjections?.length > 0
   const yr1NOI      = hasOpModel ? (opModel.annualProjections[0]?.noi || srcNOI) : srcNOI
 
-  // Sale price uses Year (exitYear+1) NOI / going-out cap (standard reversion)
+  // Sale price = Year(exitYear+1) NOI / going-out cap.
+  // annualProjections is 0-indexed: index 0 = Year 1, index exitYear = Year exitYear+1
   const exitNOI = (() => {
-    if (!hasOpModel) return srcNOI
-    const yr = opModel.annualProjections[exitYear]  // exitYear is 1-based index → [exitYear] = year+1
-    return yr?.noi || srcNOI
+    if (hasOpModel) {
+      const yr = opModel.annualProjections[exitYear]   // index exitYear = Year exitYear+1
+      if (yr?.noi) return yr.noi
+    }
+    // Fallback: grow srcNOI by market_rent_growth for exitYear+1 years
+    const growthRate = nv(defs.market_rent_growth || ga('market_rent_growth'), 0.0325)
+    return srcNOI * Math.pow(1 + growthRate, exitYear + 1)
   })()
-  const salePrice   = goingOutCap>0 ? exitNOI/goingOutCap : 0
+  const salePrice   = goingOutCap > 0 && exitNOI > 0 ? exitNOI / goingOutCap : 0
   const remBal      = loanBalance(annRate, amortYrs, loanAmt, exitYear)
   const netProceeds = salePrice>0 ? salePrice*(1-saleExpPct)-remBal : 0
   const annCF       = yr1NOI - annualDS
@@ -595,7 +611,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
 
           {/* Close Date */}
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Anticipated close date</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}><input type="date" value={acq.close_date||''} onChange={e=>setAcq('close_date',e.target.value)} style={{ ...inp, textAlign:'right' }}/></div>
+          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}><input type="date" value={acq.close_date||''} onChange={e=>setAcq('close_date',e.target.value)} style={{ ...reqInp(acq.close_date), textAlign:'right' }}/></div>
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}></div>
 
           {/* Purchase Price — dropdown */}
@@ -613,7 +629,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
           {/* Down Payment */}
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Down payment</div>
           <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.down_pmt_pct||''} onChange={e=>setAcq('down_pmt_pct',e.target.value)} placeholder="25" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888' }}>%</span>
+            <input type="number" value={acq.down_pmt_pct||''} onChange={e=>setAcq('down_pmt_pct',e.target.value)} placeholder="25" style={{ ...reqInp(acq.down_pmt_pct), textAlign:'right' }}/><span style={{ color:'#888' }}>%</span>
           </div>
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', fontWeight:500 }}>{fmtC(downAmt||null)}</div>
 
@@ -647,21 +663,21 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
           {/* Interest Rate */}
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Fixed interest rate</div>
           <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.interest_rate||''} onChange={e=>setAcq('interest_rate',e.target.value)} placeholder="6.5" step="0.125" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888', whiteSpace:'nowrap' }}>% / yr</span>
+            <input type="number" value={acq.interest_rate||''} onChange={e=>setAcq('interest_rate',e.target.value)} placeholder="6.5" step="0.125" style={{ ...reqInp(acq.interest_rate), textAlign:'right' }}/><span style={{ color:'#888', whiteSpace:'nowrap' }}>% / yr</span>
           </div>
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>Annually</div>
 
           {/* Amortization */}
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Amortization</div>
           <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.amortization||''} onChange={e=>setAcq('amortization',e.target.value)} placeholder="25" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888' }}>Years</span>
+            <input type="number" value={acq.amortization||''} onChange={e=>setAcq('amortization',e.target.value)} placeholder="25" style={{ ...reqInp(acq.amortization), textAlign:'right' }}/><span style={{ color:'#888' }}>Years</span>
           </div>
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>{amortYrs?amortYrs*12+' Months':''}</div>
 
           {/* Loan Term */}
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Loan term</div>
           <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.loan_term||''} onChange={e=>setAcq('loan_term',e.target.value)} placeholder="10" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888' }}>Years</span>
+            <input type="number" value={acq.loan_term||''} onChange={e=>setAcq('loan_term',e.target.value)} placeholder="10" style={{ ...reqInp(acq.loan_term), textAlign:'right' }}/><span style={{ color:'#888' }}>Years</span>
           </div>
           <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>{loanTermYrs?loanTermYrs*12+' Months':''}</div>
 
@@ -823,12 +839,12 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>Exit Assumptions</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
               <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Anticipated exit year</div>
-                <input type="number" value={ir.exit_year||''} onChange={e=>setIR('exit_year',e.target.value)} placeholder="5" style={inp}/></div>
+                <input type="number" value={ir.exit_year||''} onChange={e=>setIR('exit_year',e.target.value)} placeholder="5" style={reqInp(ir.exit_year)}/></div>
               <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Going-out cap rate %</div>
-                <input type="number" value={ir.going_out_cap||''} onChange={e=>setIR('going_out_cap',e.target.value)} placeholder="8.0" step="0.25" style={inp}/></div>
+                <input type="number" value={ir.going_out_cap||''} onChange={e=>setIR('going_out_cap',e.target.value)} placeholder="8.0" step="0.25" style={reqInp(ir.going_out_cap)}/></div>
             </div>
             <div style={{ marginBottom:12 }}><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Sale expense %</div>
-              <input type="number" value={ir.sale_expense||''} onChange={e=>setIR('sale_expense',e.target.value)} placeholder="5" step="0.5" style={inp}/></div>
+              <input type="number" value={ir.sale_expense||''} onChange={e=>setIR('sale_expense',e.target.value)} placeholder="5" step="0.5" style={reqInp(ir.sale_expense)}/></div>
             <KV label={`Year ${exitYear+1} NOI (sale basis)`} value={fmtC(exitNOI||null)} />
             <KV label="Sale price"           value={fmtC(salePrice||null)} />
             <KV label="Remaining loan balance" value={fmtC(remBal||null)} />
