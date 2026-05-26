@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import Proposals from './pages/Proposals'
+import Properties from './pages/Properties'
 import CompDatabase from './pages/CompDatabase'
 import './App.css'
 
@@ -12,6 +13,9 @@ export default function App() {
           <NavLink to="/" end className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             Proposals
           </NavLink>
+          <NavLink to="/properties" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+            Properties
+          </NavLink>
           <NavLink to="/comps" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             Comp Database
           </NavLink>
@@ -19,6 +23,7 @@ export default function App() {
         <main className="main-content">
           <Routes>
             <Route path="/" element={<Proposals />} />
+            <Route path="/properties" element={<Properties />} />
             <Route path="/comps" element={<CompDatabase />} />
           </Routes>
         </main>
