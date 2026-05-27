@@ -310,9 +310,125 @@
   })
 
   // ── Expose data for AI generate and persistence ───────────────────────
-  window.__omData = { proposal, pr, units, fin, dash, comps: selectedComps, metrics: data, sb, proposalId }
-  window.__omDataReady = true
-  document.dispatchEvent(new Event('om-data-ready'))
+  const unitNotes = units.map(u => u.notes).filter(Boolean).join('; ')
+  const unitMix = units.map(u => `${u.unit_type || '?'} ${u.unit_sf || '?'}SF $${u.actual_rent || 0}/mo`).join(', ')
+  const aiContext = { ...data, unit_notes: unitNotes, unit_mix: unitMix }
 
+  window.__omData = { proposal, pr, units, fin, dash, comps: selectedComps, metrics: data, sb, proposalId, aiContext }
+  window.__omDataReady = true
+
+  // ── AI Generate buttons ───────────────────────────────────────────────
+  const isClientView = new URLSearchParams(location.search).get('view') === 'client'
+  if (!isClientView) {
+    const generatePages = [
+      { selector: '.om-page.summary', page: 'investment_summary', apply: (res, el) => {
+        const h = el.querySelector('.h-title, h2'); if (h && res.headline) h.textContent = res.headline
+        const p = el.querySelector('.lede, .p-body'); if (p && res.lede) p.textContent = res.lede
+      }},
+      { selector: '.om-page.highlights:not(.is-paper)', page: 'investment_highlights', apply: (res, el) => {
+        if (!res.highlights) return
+        const cards = el.querySelectorAll('.card, .highlight-card')
+        res.highlights.forEach((h, i) => { if (!cards[i]) return; const t = cards[i].querySelector('h3'); if (t) t.textContent = h.title; const p = cards[i].querySelector('p:not(h3)'); if (p) p.textContent = h.description })
+      }},
+      { selector: '.om-page.highlights.is-paper', page: 'location_highlights', apply: (res, el) => {
+        if (!res.highlights) return
+        const cards = el.querySelectorAll('.card, .highlight-card')
+        res.highlights.forEach((h, i) => { if (!cards[i]) return; const t = cards[i].querySelector('h3'); if (t) t.textContent = h.title; const p = cards[i].querySelector('p:not(h3)'); if (p) p.textContent = h.description })
+      }},
+      { selector: '.om-page.narrative[data-group="Proposal"]', page: 'market_narrative', apply: (res, el) => {
+        const h = el.querySelector('.h-title, h2'); if (h && res.headline) h.textContent = res.headline
+        const body = el.querySelector('.narrative-body, .p-body'); if (body && res.narrative) body.innerHTML = res.narrative.split('\n\n').map(p => '<p>' + p + '</p>').join('')
+      }},
+      { selector: '.om-page.letter-page', page: 'sales_letter', apply: (res, el) => {
+        const sal = el.querySelector('.salutation'); if (sal && res.salutation) sal.textContent = res.salutation
+        const body = el.querySelector('.letter-body, .body'); if (body && res.body) body.innerHTML = res.body.split('\n\n').map(p => '<p>' + p + '</p>').join('')
+        const close = el.querySelector('.closing'); if (close && res.closing) close.textContent = res.closing
+      }},
+    ]
+
+    const btnStyle = 'position:absolute;top:12px;right:12px;z-index:5;padding:5px 12px;background:rgba(0,0,0,0.7);color:#fff;border:none;border-radius:6px;font:11px/1 system-ui;cursor:pointer;backdrop-filter:blur(4px);'
+
+    generatePages.forEach(({ selector, page, apply }) => {
+      const el = document.querySelector(selector)
+      if (!el) return
+      const btn = document.createElement('button')
+      btn.className = 'om-generate-btn'
+      btn.style.cssText = btnStyle
+      btn.textContent = 'Generate'
+      btn.onclick = async () => {
+        btn.textContent = 'Generating...'
+        btn.disabled = true
+        try {
+          const res = await fetch('/api/generate-om-text', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page, context: aiContext }),
+          })
+          if (!res.ok) throw new Error('Generation failed')
+          const result = await res.json()
+          apply(result, el)
+          btn.textContent = 'Generated'
+          setTimeout(() => { btn.textContent = 'Generate'; btn.disabled = false }, 2000)
+        } catch (err) {
+          console.error('AI generate error:', err)
+          btn.textContent = 'Error'
+          setTimeout(() => { btn.textContent = 'Generate'; btn.disabled = false }, 2000)
+        }
+      }
+      el.style.position = 'relative'
+      el.appendChild(btn)
+    })
+  }
+
+  // ── Per-proposal persistence (Phase 4) ────────────────────────────────
+  let saveTimer = null
+  const omState = proposal.om_state || {}
+
+  // Apply saved text overrides
+  if (omState.text_overrides) {
+    Object.entries(omState.text_overrides).forEach(([sel, text]) => {
+      const el = document.querySelector(sel)
+      if (el) el.textContent = text
+    })
+  }
+
+  // Apply saved page order, disabled pages, titles from om_state (override localStorage)
+  if (omState.disabled_pages) {
+    try { localStorage.setItem('om-pages-disabled', JSON.stringify(omState.disabled_pages)) } catch {}
+  }
+  if (omState.page_order) {
+    try { localStorage.setItem('om-page-order', JSON.stringify(omState.page_order)) } catch {}
+  }
+  if (omState.page_titles) {
+    try { localStorage.setItem('om-page-titles', JSON.stringify(omState.page_titles)) } catch {}
+  }
+
+  function saveState() {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(async () => {
+      const state = {
+        disabled_pages: (() => { try { return JSON.parse(localStorage.getItem('om-pages-disabled') || '[]') } catch { return [] } })(),
+        page_order: (() => { try { return JSON.parse(localStorage.getItem('om-page-order') || '[]') } catch { return [] } })(),
+        page_titles: (() => { try { return JSON.parse(localStorage.getItem('om-page-titles') || '{}') } catch { return {} } })(),
+      }
+      const { error } = await sb.from('proposals').update({ om_state: state }).eq('id', proposalId)
+      if (error) console.warn('OM save error:', error)
+      else {
+        const indicator = document.getElementById('om-save-indicator')
+        if (indicator) { indicator.style.opacity = '1'; setTimeout(() => { indicator.style.opacity = '0' }, 2000) }
+      }
+    }, 2000)
+  }
+
+  // Watch for changes via localStorage events (sidebar writes to localStorage)
+  window.addEventListener('storage', saveState)
+  // Also watch for direct localStorage writes from same tab
+  const origSetItem = localStorage.setItem.bind(localStorage)
+  localStorage.setItem = function (key, value) {
+    origSetItem(key, value)
+    if (key.startsWith('om-')) saveState()
+  }
+
+  document.dispatchEvent(new Event('om-data-ready'))
   console.log('OM: data loaded for proposal', proposalId, '—', units.length, 'units,', selectedComps.length, 'comps')
 })()

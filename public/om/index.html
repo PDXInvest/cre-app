@@ -3377,6 +3377,7 @@
         <span>Open Client View</span><span class="arrow">↗</span>
       </button>
       <button class="om-btn is-ghost" id="printBtn" title="Print or save as PDF">Print / PDF</button>
+      <div id="om-save-indicator" style="text-align:center;font-size:11px;color:#27500A;padding:4px 0;opacity:0;transition:opacity 0.3s">Saved</div>
     </div>
 
     <!-- Visible only when the sidebar is collapsed: a thin strip with the
@@ -3398,7 +3399,7 @@
     <!-- ========== 01 — COVER ========== -->
     <section class="om-page cover" id="p-cover" data-toc="Cover" data-group="Offering Memorandum" data-screen-label="01 Cover">
       <div class="cover-image">
-        <image-slot id="cover-hero" placeholder="Drop the hero / cover photo"></image-slot>
+        <image-slot id="cover-hero" data-max-dim="1920" placeholder="Drop the hero / cover photo"></image-slot>
       </div>
       <div class="cover-mast">
         <span class="badge">Offering Memorandum</span>
@@ -3457,7 +3458,7 @@
           <p class="p-body">Positioned at the vibrant intersection of Kerns and Laurelhurst, 2422 NE Glisan St is a Walker's Paradise (96) and a Biker's Paradise (100). Residents enjoy the #1 ranked "Coolest Neighborhood in America" status of Kerns alongside the historic tranquility of Laurelhurst and its iconic 26-acre park.</p>
         </div>
         <div class="photo" style="height:200px">
-          <image-slot id="summary-inset" placeholder="Optional inset photo" radius="0"></image-slot>
+          <image-slot id="summary-inset" data-max-dim="800" placeholder="Optional inset photo" radius="0"></image-slot>
         </div>
       </div>
 
@@ -3467,7 +3468,7 @@
     <!-- ========== 03 — PROPERTY SNAPSHOT ========== -->
     <section class="om-page snapshot" data-toc="Property Snapshot" data-group="Offering Memorandum" data-screen-label="03 Property Snapshot">
       <div class="photo">
-        <image-slot id="snapshot-aerial" placeholder="Drop an exterior or aerial photo"></image-slot>
+        <image-slot id="snapshot-aerial" data-max-dim="1920" placeholder="Drop an exterior or aerial photo"></image-slot>
       </div>
       <div class="data">
         <div class="meta">
@@ -3581,7 +3582,7 @@
         <image-slot id="unit-1-photo" placeholder="Drop a photo of Unit 1"></image-slot>
         <div class="plan-thumb">
           <span class="plan-label">Floor Plan</span>
-          <image-slot id="unit-1-plan" placeholder="Plan"></image-slot>
+          <image-slot id="unit-1-plan" data-max-dim="800" placeholder="Plan"></image-slot>
         </div>
       </div>
       <div class="unit-meta">
@@ -3608,7 +3609,7 @@
         <image-slot id="unit-2-photo" placeholder="Drop a photo of Unit 2"></image-slot>
         <div class="plan-thumb">
           <span class="plan-label">Floor Plan</span>
-          <image-slot id="unit-2-plan" placeholder="Plan"></image-slot>
+          <image-slot id="unit-2-plan" data-max-dim="800" placeholder="Plan"></image-slot>
         </div>
       </div>
       <div class="unit-meta">
@@ -3635,7 +3636,7 @@
         <image-slot id="unit-3-photo" placeholder="Drop a photo of Unit 3"></image-slot>
         <div class="plan-thumb">
           <span class="plan-label">Floor Plan</span>
-          <image-slot id="unit-3-plan" placeholder="Plan"></image-slot>
+          <image-slot id="unit-3-plan" data-max-dim="800" placeholder="Plan"></image-slot>
         </div>
       </div>
       <div class="unit-meta">
@@ -3662,7 +3663,7 @@
         <image-slot id="unit-4-photo" placeholder="Drop a photo of Unit 4"></image-slot>
         <div class="plan-thumb">
           <span class="plan-label">Floor Plan</span>
-          <image-slot id="unit-4-plan" placeholder="Plan"></image-slot>
+          <image-slot id="unit-4-plan" data-max-dim="800" placeholder="Plan"></image-slot>
         </div>
       </div>
       <div class="unit-meta">
@@ -3702,7 +3703,7 @@
     <!-- ========== 11 — NEIGHBORHOOD MAP ========== -->
     <section class="om-page map-page" data-toc="Neighborhood Map" data-group="Offering Memorandum" data-screen-label="11 Neighborhood Map">
       <div class="map-img">
-        <image-slot id="map-aerial" placeholder="Drop the neighborhood map / aerial"></image-slot>
+        <image-slot id="map-aerial" data-max-dim="1920" placeholder="Drop the neighborhood map / aerial"></image-slot>
         <div class="map-overlay">
           <p class="sub">Location</p>
           <h2>Vibrant Kerns Neighborhood</h2>
@@ -3744,7 +3745,7 @@
         </div>
       </div>
       <div class="photo">
-        <image-slot id="kerns-photo" placeholder="Drop a neighborhood photo"></image-slot>
+        <image-slot id="kerns-photo" data-max-dim="1920" placeholder="Drop a neighborhood photo"></image-slot>
       </div>
 
       <footer class="page-footer"><span>Your Company · Real Estate</span><span>Glisan 4-Plex<span class="pn"> · 12</span></span></footer>
@@ -3759,19 +3760,19 @@
 
       <div class="grid">
         <div class="park">
-          <div class="img"><image-slot id="park-laurelhurst" placeholder="Laurelhurst Park"></image-slot></div>
+          <div class="img"><image-slot id="park-laurelhurst" data-max-dim="800" placeholder="Laurelhurst Park"></image-slot></div>
           <h3>Laurelhurst Park</h3>
           <p class="acres">26 acres · 0.4 mi away</p>
           <p>An urban oasis widely considered one of the most beautifully landscaped parks in the country. Designed in the early 20th century with influence from the Olmsted Brothers, it features winding paths, a picturesque duck pond, and a massive canopy of mature hardwoods.</p>
         </div>
         <div class="park">
-          <div class="img"><image-slot id="park-oregon" placeholder="Oregon Park"></image-slot></div>
+          <div class="img"><image-slot id="park-oregon" data-max-dim="800" placeholder="Oregon Park"></image-slot></div>
           <h3>Oregon Park</h3>
           <p class="acres">3.29 acres · 0.3 mi away</p>
           <p>A short walk from the property — a peaceful green space featuring mature Douglas firs and open lawns. Includes an accessible playground, a basketball court, and a "nature patch" of native plants and pollinator gardens.</p>
         </div>
         <div class="park">
-          <div class="img"><image-slot id="park-tabor" placeholder="Mt. Tabor Park"></image-slot></div>
+          <div class="img"><image-slot id="park-tabor" data-max-dim="800" placeholder="Mt. Tabor Park"></image-slot></div>
           <h3>Mt. Tabor Park</h3>
           <p class="acres">196 acres · 2 mi away</p>
           <p>A sprawling urban escape centered around an extinct volcanic cinder cone. Iconic panoramic views of the Portland skyline, historic reservoirs, and miles of winding trails for hiking and cycling.</p>
@@ -3800,7 +3801,7 @@
         </div>
       </div>
       <div class="photo">
-        <image-slot id="city-photo" placeholder="Drop a Portland city photo"></image-slot>
+        <image-slot id="city-photo" data-max-dim="1920" placeholder="Drop a Portland city photo"></image-slot>
       </div>
 
       <footer class="page-footer"><span>Your Company · Real Estate</span><span>Glisan 4-Plex<span class="pn"> · 14</span></span></footer>
@@ -3886,7 +3887,7 @@
     <!-- ========== 17 — CONTACT ========== -->
     <section class="om-page contact" data-toc="Contact" data-group="Offering Memorandum" data-screen-label="17 Contact">
       <div class="ct-photo">
-        <image-slot id="contact-photo" placeholder="Drop a closing photo or skyline"></image-slot>
+        <image-slot id="contact-photo" data-max-dim="1920" placeholder="Drop a closing photo or skyline"></image-slot>
       </div>
       <div class="ct-body">
         <p class="label">Exclusively Listed By</p>
@@ -4003,7 +4004,7 @@
         </div>
       </div>
       <div class="photo">
-        <image-slot id="market-narrative-photo" placeholder="Market / city photo"></image-slot>
+        <image-slot id="market-narrative-photo" data-max-dim="1920" placeholder="Market / city photo"></image-slot>
       </div>
       <footer class="page-footer"><span>Your Company · Real Estate</span><span>Proposal<span class="pn"> · P·02</span></span></footer>
     </section>
@@ -4506,7 +4507,7 @@
       <p class="stage-meta">8.5 × 11 in · Letter portrait</p>
       <div class="flyer-mock flyer-a-1">
         <div class="hero">
-          <image-slot id="flyer-a-1-hero" placeholder="Hero photo for flyer A"></image-slot>
+          <image-slot id="flyer-a-1-hero" data-max-dim="1920" placeholder="Hero photo for flyer A"></image-slot>
         </div>
         <div class="mast">
           <span class="badge">For Sale</span>
@@ -4604,7 +4605,7 @@
           </div>
         </div>
         <div class="right">
-          <image-slot id="flyer-b-1-hero" placeholder="Hero photo for flyer B"></image-slot>
+          <image-slot id="flyer-b-1-hero" data-max-dim="1920" placeholder="Hero photo for flyer B"></image-slot>
         </div>
       </div>
     </section>
@@ -4649,7 +4650,7 @@
       <p class="stage-meta" id="postcard-a-size-label">6 × 4 in · Standard</p>
       <div class="stage" id="postcard-a-stage">
         <div class="pc pc-6x4 pc-a-front">
-          <image-slot id="postcard-a-img" placeholder="Hero photo"></image-slot>
+          <image-slot id="postcard-a-img" data-max-dim="1920" placeholder="Hero photo"></image-slot>
           <div class="overlay">
             <span class="kicker">Just Listed</span>
             <h1>The Glisan 4-Plex.</h1>
@@ -4698,7 +4699,7 @@
             </div>
           </div>
           <div class="right">
-            <image-slot id="postcard-b-img" placeholder="Hero photo"></image-slot>
+            <image-slot id="postcard-b-img" data-max-dim="1920" placeholder="Hero photo"></image-slot>
           </div>
         </div>
         <div class="pc pc-6x4 pc-b-back" style="background:#fff">
@@ -4743,7 +4744,7 @@
             <div class="h">yourcompany.re<span class="sub">Portland, OR</span></div>
           </div>
           <div class="img">
-            <image-slot id="social-a-ig-sq" placeholder="IG square photo"></image-slot>
+            <image-slot id="social-a-ig-sq" data-max-dim="800" placeholder="IG square photo"></image-slot>
             <div class="stamp">
               <p class="k">Just Listed</p>
               <p class="t">Glisan 4-Plex</p>
@@ -4759,7 +4760,7 @@
         <div class="social-mock ig-story">
           <span class="plat-label">Instagram · Story</span>
           <div class="frame">
-            <image-slot id="social-a-ig-st" placeholder="Story photo"></image-slot>
+            <image-slot id="social-a-ig-st" data-max-dim="800" placeholder="Story photo"></image-slot>
             <div class="top-bar"><div class="b is-active"></div><div class="b"></div><div class="b"></div></div>
             <div class="badge">yourcompany.re · 1h</div>
             <div class="copy">
@@ -4782,7 +4783,7 @@
           </div>
           <div class="text">Excited to bring to market a fully renovated 1913 fourplex in Portland's Kerns neighborhood. Turnkey income, vintage character, a 5.51% cap. DM for the OM.</div>
           <div class="img">
-            <image-slot id="social-a-li-1" placeholder="LinkedIn photo"></image-slot>
+            <image-slot id="social-a-li-1" data-max-dim="800" placeholder="LinkedIn photo"></image-slot>
             <div class="ovr">
               <p class="k">Just Listed</p>
               <p class="h">Glisan 4-Plex · $1.395M</p>
@@ -4839,7 +4840,7 @@
             <div class="h">yourcompany.re<span class="sub">Tour this Saturday</span></div>
           </div>
           <div class="img">
-            <image-slot id="social-b-ig-sq" placeholder="Neighborhood / lifestyle photo"></image-slot>
+            <image-slot id="social-b-ig-sq" data-max-dim="800" placeholder="Neighborhood / lifestyle photo"></image-slot>
             <div class="stamp" style="border-left-color:#fff">
               <p class="k" style="color:#fff">Open Tour</p>
               <p class="t">Sat · 11–1</p>
@@ -4855,7 +4856,7 @@
         <div class="social-mock ig-story">
           <span class="plat-label">Instagram · Story</span>
           <div class="frame">
-            <image-slot id="social-b-ig-st" placeholder="Story photo"></image-slot>
+            <image-slot id="social-b-ig-st" data-max-dim="800" placeholder="Story photo"></image-slot>
             <div class="top-bar"><div class="b"></div><div class="b is-active"></div><div class="b"></div></div>
             <div class="badge">yourcompany.re · 3h</div>
             <div class="copy">
@@ -4878,7 +4879,7 @@
           </div>
           <div class="text">Three offers in week two on the Glisan 4-Plex. Bid deadline next Friday. The Portland inner-east-side is back.</div>
           <div class="img">
-            <image-slot id="social-b-li-1" placeholder="Update photo"></image-slot>
+            <image-slot id="social-b-li-1" data-max-dim="800" placeholder="Update photo"></image-slot>
             <div class="ovr">
               <p class="k" style="background:var(--charcoal-1)">Update</p>
               <p class="h">3 offers, week 2.</p>

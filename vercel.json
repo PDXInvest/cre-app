@@ -2,6 +2,9 @@
   "functions": {
     "api/extract-pdf.js": {
       "maxDuration": 60
+    },
+    "api/generate-om-text.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [
