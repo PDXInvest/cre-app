@@ -592,7 +592,9 @@
 
       // Controls and reframe entry gate. Outside the omelette runtime,
       // still allow editing — drops persist in localStorage instead.
-      const editable = true;
+      // Disable in client view so prospects see a clean read-only document.
+      const isClientView = new URLSearchParams(location.search).get('view') === 'client';
+      const editable = !isClientView;
       this.toggleAttribute('data-editable', editable);
       this._sub.style.display = editable ? '' : 'none';
 
