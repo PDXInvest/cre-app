@@ -5036,6 +5036,9 @@
 <!-- =====================================================
      APP SCRIPTS
      ===================================================== -->
+<style>
+  image-slot { display: block; min-height: 200px; border: 2px solid red; }
+</style>
 <script src="image-slot.js"></script>
 
 <script id="om-nav">
@@ -5754,6 +5757,30 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script type="text/babel" src="tweaks-panel.jsx"></script>
 <script type="text/babel" src="tweaks-app.jsx"></script>
+
+<script>
+  // Enable inline text editing for all content elements in editor mode
+  if (!new URLSearchParams(location.search).has('view')) {
+    document.querySelectorAll('.om-page h1, .om-page h2, .om-page h3, .om-page h4, .om-page p, .om-page li, .om-page td, .om-page .h-title, .om-page .lede, .om-page .kicker, .om-page .addr, .om-page .price, .om-page .label, .om-page .stat-val, .om-page .stat-label, .om-page .stamp, .om-page .badge').forEach(el => {
+      if (!el.closest('image-slot') && !el.querySelector('image-slot')) {
+        el.setAttribute('contenteditable', 'true');
+        el.style.outline = 'none';
+      }
+    });
+  }
+</script>
+
+<script>
+  console.log('=== IMAGE-SLOT DEBUG ===');
+  console.log('image-slot elements found:', document.querySelectorAll('image-slot').length);
+  console.log('custom element defined:', !!customElements.get('image-slot'));
+  console.log('first image-slot:', document.querySelector('image-slot'));
+  console.log('first image-slot shadowRoot:', document.querySelector('image-slot')?.shadowRoot);
+  console.log('first image-slot dimensions:', document.querySelector('image-slot')?.offsetWidth, 'x', document.querySelector('image-slot')?.offsetHeight);
+  console.log('image-slot.js loaded:', typeof customElements.get('image-slot'));
+  // Check for any script errors
+  window.addEventListener('error', e => console.error('SCRIPT ERROR:', e.message, e.filename, e.lineno));
+</script>
 
 </body>
 </html>
