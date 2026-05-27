@@ -84,10 +84,10 @@ const UNIT_TYPES = [
   '4 Bed / 1 Bath', '4 Bed / 2 Bath',
 ]
 
-export function normalizeRentRollUnits(extracted, proposalId) {
-  return (extracted.units || []).map((u, i) => ({
+export function normalizeRentRollUnit(u, proposalId, sortOrder) {
+  return {
     proposal_id: proposalId,
-    unit_number: u.unit_number || String(i + 1),
+    unit_number: u.unit_number || '',
     unit_type: UNIT_TYPES.includes(u.unit_type) ? u.unit_type : '2 Bed / 1 Bath',
     unit_sf: u.unit_sf || null,
     tenant_name: u.tenant_name || '',
@@ -101,12 +101,51 @@ export function normalizeRentRollUnits(extracted, proposalId) {
     lease_type: 'Fixed Term',
     security_deposit: u.security_deposit || 0,
     pre_paid_rent: 0,
-    market_rent: Number(u.actual_rent) || 0,
+    market_rent: Number(u.market_rent || u.actual_rent) || 0,
     market_rubs: 0,
     underwritten_rent: 0,
     underwritten_rubs: 0,
     stabilized_month: 36,
     notes: '',
-    sort_order: i,
-  }))
+    sort_order: sortOrder,
+  }
+}
+
+const MERGE_FIELDS = [
+  'unit_type', 'unit_sf', 'tenant_name', 'status', 'actual_rent', 'market_rent',
+  'security_deposit', 'effective_rent_date', 'move_in_date', 'lease_end_date',
+]
+
+function isBlank(v) {
+  return v === null || v === undefined || v === '' || v === 0
+}
+
+export function mergeRentRollUnits(existingUnits, importedUnits, proposalId) {
+  const existingByNum = new Map()
+  existingUnits.forEach(u => {
+    if (u.unit_number) existingByNum.set(String(u.unit_number), u)
+  })
+
+  const merged = existingUnits.map(u => ({ ...u }))
+  const matched = new Set()
+
+  for (const imp of importedUnits) {
+    const key = String(imp.unit_number || '')
+    const existing = key ? existingByNum.get(key) : null
+    if (existing) {
+      matched.add(key)
+      const idx = merged.findIndex(u => String(u.unit_number) === key)
+      if (idx === -1) continue
+      for (const field of MERGE_FIELDS) {
+        if (isBlank(merged[idx][field]) && !isBlank(imp[field])) {
+          merged[idx][field] = imp[field]
+        }
+      }
+    } else {
+      merged.push(normalizeRentRollUnit(imp, proposalId, merged.length))
+    }
+  }
+
+  merged.forEach((u, i) => { u.sort_order = i })
+  return { units: merged, matchedCount: matched.size, appendedCount: importedUnits.length - matched.size }
 }

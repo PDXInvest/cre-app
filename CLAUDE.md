@@ -56,9 +56,9 @@ Comps  (independent market database — shared across all proposals, linkable to
 - Auto-match comps to properties on import via `sf_property_id`
 - Auto-filter comp analysis when launching proposal from property
 - Phase C: Refi cash flows wired into IRR — appraised value basis (NOI / refi cap rate), DSCR-constrained loan sizing, variable debt service in levered IRR and equity multiple, cash-out proceeds at refi year
+- PDF extraction: "Import from PDF" on Rent Roll, T-12 Monthly, and Income Statement tabs — uploads PDF → Claude API extracts structured data → preview/mapping screen → user confirms → writes to Supabase
 
 ### Not Yet Started
-- Draft OM: AI-powered PDF rent roll extraction
 - Salesforce direct API sync (currently CSV import)
 
 ---
@@ -94,6 +94,11 @@ Property-first CRM model restructuring, completed in four phases:
 - `src/pages/RentRoll.jsx` — rent roll tab with per-unit editing
 - `src/pages/CompDatabase.jsx` — comp database with CSV import + auto-match to properties
 - `src/utils/operatingModel.js` — financial engine
+- `src/utils/pdfExtract.js` — PDF extraction client helpers + category code constants
+- `src/components/PdfImportButton.jsx` — shared "Import from PDF" upload button
+- `src/components/PdfPreviewRentRoll.jsx` — rent roll PDF preview/edit modal
+- `src/components/PdfPreviewFinancials.jsx` — T-12 / Income Statement PDF mapping modal
+- `api/extract-pdf.js` — Vercel Serverless Function (Claude API proxy for PDF extraction)
 - `src/supabase.js` — Supabase client
 
 ## Supabase Tables
@@ -146,6 +151,16 @@ Property-first CRM model restructuring, completed in four phases:
 - Levered IRR uses variable DS: acquisition DS pre-refi, refi DS post-refi
 - Refi year cash flow includes cash-out proceeds
 - Exit remaining balance uses whichever loan is active at exit year
+
+### PDF Extraction
+- Architecture: browser → Vercel Serverless Function (`api/extract-pdf.js`) → Claude API (`claude-sonnet-4-20250514`) → structured JSON
+- API key: `ANTHROPIC_API_KEY` set in Vercel env vars (not VITE_ prefix — server-side only)
+- Three extraction types: `rent_roll`, `t12_monthly`, `income_statement`
+- Rent Roll: Claude returns unit array → preview modal → sets units in state → user saves
+- T-12 / Income Statement: Claude returns coded data + unmapped items → mapping modal with dropdowns → merges into existing financials JSON
+- Unmapped items highlighted yellow; user assigns via dropdown or skips
+- Nothing writes to database until user clicks "Confirm Import"
+- Max PDF size: 10MB client-side check; Vercel function timeout: 60s (Pro plan)
 
 ### Growth Assumptions
 - App-level defaults in `app_settings` table

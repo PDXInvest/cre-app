@@ -48,6 +48,10 @@ export default function PdfPreviewRentRoll({ data, onConfirm, onCancel }) {
           <button onClick={onCancel} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>×</button>
         </div>
 
+        <div style={{ padding: '8px 12px', background: '#E6F1FB', border: '0.5px solid #378ADD', borderRadius: 8, fontSize: 12, color: '#0C447C', marginBottom: 12 }}>
+          Existing units will be matched by unit number. Only blank fields will be filled in — no existing data will be overwritten. New unit numbers will be appended.
+        </div>
+
         {unmapped.length > 0 && (
           <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '0.5px solid #F59E0B', borderRadius: 8, fontSize: 12, color: '#92400E', marginBottom: 12 }}>
             PDF columns not mapped: {unmapped.join(', ')}

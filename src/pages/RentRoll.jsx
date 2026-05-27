@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import PdfImportButton from '../components/PdfImportButton'
 import PdfPreviewRentRoll from '../components/PdfPreviewRentRoll'
-import { normalizeRentRollUnits } from '../utils/pdfExtract'
+import { mergeRentRollUnits } from '../utils/pdfExtract'
 
 const UNIT_TYPES = [
   'Studio / 1 Bath', '1 Bed / 1 Bath', '2 Bed / 1 Bath', '2 Bed / 1.5 Bath', '2 Bed / 2 Bath',
@@ -204,10 +204,13 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
 
       {pdfData && (
         <PdfPreviewRentRoll data={pdfData} onCancel={() => setPdfData(null)} onConfirm={imported => {
-          const normalized = normalizeRentRollUnits({ units: imported }, proposal.id)
-          setUnits(normalized)
+          const { units: merged, matchedCount, appendedCount } = mergeRentRollUnits(units, imported, proposal.id)
+          setUnits(merged)
           setPdfData(null)
-          setMsg(`${normalized.length} units imported from PDF — click "Save Rent Roll" to persist`)
+          const parts = []
+          if (matchedCount) parts.push(`${matchedCount} units updated`)
+          if (appendedCount) parts.push(`${appendedCount} new units added`)
+          setMsg(`${parts.join(', ')} — click "Save Rent Roll" to persist`)
           setTimeout(() => setMsg(''), 8000)
         }} />
       )}
