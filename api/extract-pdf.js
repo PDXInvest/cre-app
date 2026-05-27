@@ -12,7 +12,7 @@ const INCOME_CODES = `Valid income codes — use these exact strings as JSON key
 - rubs_water_sewer: Water/sewer reimbursement, RUBS water, water recovery, water billback, tenant water, W/S reimb
 - rubs_gas: Gas reimbursement, RUBS gas, gas recovery, gas billback, tenant gas
 - rubs_trash: Trash reimbursement, RUBS trash, trash recovery, trash billback, tenant trash
-- rubs_combined: Combined utility recovery, RUBS, utility reimbursement, utility recovery, utility billback (use when utility reimbursements are not broken out by type)
+- rubs_combined: Combined utility recovery, RUBS, utility reimbursement, utility recovery, utility billback, utility income, tenant utilities, utility charges (use when utility reimbursements are not broken out by type)
 - park_parking: Parking income, parking revenue, parking rent, garage income, carport income, covered parking
 - storage_income: Storage income, storage revenue, storage rent, locker income
 - oi_application_fees: Application fees, app fees, screening fees, credit check fees
@@ -32,7 +32,8 @@ const EXPENSE_CODES = `Valid expense codes — use these exact strings as JSON k
 - uti_trash: Trash expense, trash/recycling, refuse, waste removal, garbage, sanitation (landlord-paid portion)
 - uti_combined: Combined utilities, total utilities, utility expense (use when utilities are not broken out by type — electric, gas, water, trash combined into one line)
 - pm_mgmt_fees: Management fees, property management, PM fee, mgmt fee, management fee, manager fees, management company fee, off-site management
-- pm_lease_up: Lease-up fees, leasing commissions, lease-up costs, leasing fees
+- pm_lease_up: Lease-up fees, leasing commissions, lease-up costs, leasing fees, lease renewal fee, renewal fees, lease renewal
+- pm_misc_fees: Software fees, tech fees, Appfolio, property management software, per-unit fees, technology fee, management software, PM software, Buildium, Yardi, RentManager
 - rm_general_maint: General maintenance, maintenance, building maintenance, property maintenance, routine maintenance, preventive maintenance, maintenance - other, misc maintenance
 - rm_general_repair: General repairs, repairs, repairs & maintenance, R&M, repairs - other, building repairs, misc repairs, contract repairs
 - rm_cleaning: Cleaning, janitorial, housekeeping, common area cleaning, unit cleaning
@@ -45,7 +46,7 @@ const EXPENSE_CODES = `Valid expense codes — use these exact strings as JSON k
 - capres_reserves: Capital reserves, replacement reserves, reserve for replacement, capital expenditure reserves, CapEx reserves, reserves
 - mark_advertising: Advertising, marketing, leasing costs, internet listing, promotional, signage, marketing & advertising, online advertising, ILS fees
 - pay_payroll: Payroll, on-site staff wages, salary, employee benefits, workers comp, on-site personnel, office staff, manager salary (non-maintenance staff)
-- conserv_services: Contract services, professional services, outside services, vendor services, service contracts
+- conserv_services: Contract services, professional services, outside services, vendor services, service contracts, fire alarm, fire extinguisher, fire safety, elevator service, elevator maintenance, HVAC contract, pest control contract, monitoring services
 - mark_leasing: Leasing commissions, leasing fees, broker fees, referral fees
 - mark_internet: Internet advertising, ILS, online listings, internet listing services, website
 - sec_security: Security, security services, patrol, alarm, camera, access control, gate, security system
@@ -140,6 +141,7 @@ Semantic matching rules:
 - Loss to lease, vacancy/credit loss, and concessions are typically shown as negative or parenthesized — extract them as positive numbers
 - If confidence is low (uncertain match), still map it but mark confidence as "low"
 - If a line item truly does not match any code, put it in "unmapped"
+- CRITICAL: Every line item with dollar values in the PDF must appear either in "months" (mapped) or "unmapped". Never silently drop a line item. If you are unsure how to classify something, put it in "unmapped" rather than omitting it.
 - Return ONLY valid JSON, no markdown fences`,
 
   income_statement: `Extract the annual income statement data from this PDF. This is an annual financial summary for a multifamily apartment property, potentially with multiple years of data. Use semantic understanding to match line items — labels vary widely across management companies and accounting software. Prioritize meaning over exact label matching.
@@ -177,6 +179,7 @@ Semantic matching rules:
 - Loss to lease, vacancy/credit loss, and concessions — extract as positive numbers
 - If confidence is low, still map but mark as "low"
 - If a line item truly does not match any code, put it in "unmapped"
+- CRITICAL: Every line item with dollar values in the PDF must appear either in "years" (mapped) or "unmapped". Never silently drop a line item. If unsure, put it in "unmapped".
 - Return ONLY valid JSON, no markdown fences`,
 }
 
