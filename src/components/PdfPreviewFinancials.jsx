@@ -30,7 +30,13 @@ const CategoryDropdown = ({ value, onChange, style }) => (
 export default function PdfPreviewFinancials({ type, data, existingData, onConfirm, onCancel }) {
   const isT12 = type === 't12_monthly'
   const rawPeriods = isT12 ? data.months || {} : data.years || {}
-  const periodKeys = Object.keys(rawPeriods).sort()
+  const allPeriodKeys = Object.keys(rawPeriods).sort()
+  const periodKeys = isT12
+    ? allPeriodKeys.filter(pk => {
+        const codes = rawPeriods[pk] || {}
+        return Object.values(codes).some(v => Number(v) !== 0)
+      })
+    : allPeriodKeys
   const mappedList = data.mapped || []
 
   const allCodes = new Set()
