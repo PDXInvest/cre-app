@@ -3312,31 +3312,34 @@
      <style> below) to match the current orientation toggle.
      ============================================================ */
   @media print {
-    @page { margin: 0; }
-    html, body { background: #fff; }
-    .om-sidebar, .nav-toggle, #tweaks-root { display: none !important; }
+    @page { margin: 0; size: letter landscape; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    .om-sidebar, .nav-toggle, #tweaks-root, .om-collapse-strip { display: none !important; }
     .om-shell { display: block; }
-    .om-stage { padding: 0; gap: 0; }
+    .om-stage { padding: 0; gap: 0; display: block; }
     .om-page {
       box-shadow: none !important;
       page-break-after: always;
       break-after: page;
-      /* Width/height set by #om-print-orientation per active orientation. */
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+      box-sizing: border-box;
       transform-origin: top left;
     }
+    .om-page > * { padding: 64px; box-sizing: border-box; }
+    .om-page.cover > * { padding: 0; }
     .om-page:last-child { page-break-after: auto; }
-    /* Restore running header / footer chrome for print only. */
     .om-page .page-header,
     .om-page .page-footer { display: flex; }
-    /* Force backgrounds to print */
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   }
 </style>
 <!-- Rewritten by tweaks-app.jsx whenever orientation changes -->
 <style id="om-print-orientation">
   @media print {
-    @page { size: letter landscape; }
-    .om-page { width: 11in !important; height: 8.5in !important; }
+    @page { size: letter landscape; margin: 0; }
+    .om-page { width: 11in !important; height: 8.5in !important; margin: 0 !important; }
   }
 </style>
 </head>
