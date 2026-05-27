@@ -57,9 +57,9 @@ function applyOrientation(orient) {
     document.head.appendChild(style);
   }
   if (orient === 'portrait') {
-    style.textContent = `@media print { @page { size: letter portrait; margin: 0; } .om-page { width: 8.5in !important; height: 11in !important; margin: 0 !important; } }`;
+    style.textContent = `@media print { @page { size: 8.5in 11in; margin: 0; } .om-page { width: 8.5in !important; min-height: 11in !important; } }`;
   } else {
-    style.textContent = `@media print { @page { size: letter landscape; margin: 0; } .om-page { width: 11in !important; height: 8.5in !important; margin: 0 !important; } }`;
+    style.textContent = `@media print { @page { size: 11in 8.5in; margin: 0; } .om-page { width: 11in !important; min-height: 8.5in !important; } }`;
   }
 }
 

@@ -3312,7 +3312,7 @@
      <style> below) to match the current orientation toggle.
      ============================================================ */
   @media print {
-    @page { margin: 0; size: letter landscape; }
+    @page { size: 11in 8.5in; margin: 0; }
     html, body { margin: 0; padding: 0; background: #fff; }
     .om-sidebar, .nav-toggle, #tweaks-root, .om-collapse-strip { display: none !important; }
     .om-shell { display: block; }
@@ -3321,14 +3321,16 @@
       box-shadow: none !important;
       page-break-after: always;
       break-after: page;
+      width: 11in !important;
+      min-height: 8.5in !important;
+      height: auto !important;
       margin: 0 !important;
-      padding: 0 !important;
-      overflow: hidden;
+      padding: var(--page-pad) !important;
       box-sizing: border-box;
+      overflow: visible !important;
       transform-origin: top left;
     }
-    .om-page > * { padding: 64px; box-sizing: border-box; }
-    .om-page.cover > * { padding: 0; }
+    .om-page.cover { padding: 0 !important; }
     .om-page:last-child { page-break-after: auto; }
     .om-page .page-header,
     .om-page .page-footer { display: flex; }
@@ -3338,8 +3340,8 @@
 <!-- Rewritten by tweaks-app.jsx whenever orientation changes -->
 <style id="om-print-orientation">
   @media print {
-    @page { size: letter landscape; margin: 0; }
-    .om-page { width: 11in !important; height: 8.5in !important; margin: 0 !important; }
+    @page { size: 11in 8.5in; margin: 0; }
+    .om-page { width: 11in !important; min-height: 8.5in !important; }
   }
 </style>
 </head>
