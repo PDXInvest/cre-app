@@ -1120,11 +1120,16 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
       )}
 
       {pdfData && pdfType && (
-        <PdfPreviewFinancials type={pdfType} data={pdfData} onCancel={() => { setPdfData(null); setPdfType(null) }} onConfirm={(mergedData, endMonth) => {
+        <PdfPreviewFinancials type={pdfType} data={pdfData} existingData={pdfType === 't12_monthly' ? data.t12_monthly : data.income_statement} onCancel={() => { setPdfData(null); setPdfType(null) }} onConfirm={(mergedData, endMonth) => {
           setData(prev => {
             const updated = { ...prev }
             if (pdfType === 't12_monthly') {
-              updated.t12_monthly = { ...(updated.t12_monthly || {}), ...mergedData }
+              const existing = updated.t12_monthly || {}
+              const merged = { ...existing }
+              for (const [monthKey, codes] of Object.entries(mergedData)) {
+                merged[monthKey] = { ...(merged[monthKey] || {}), ...codes }
+              }
+              updated.t12_monthly = merged
               if (endMonth) updated.growth_assumptions = { ...(updated.growth_assumptions || {}), t12_end_month: endMonth }
             } else {
               const existing = updated.income_statement || {}

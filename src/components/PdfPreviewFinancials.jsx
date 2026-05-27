@@ -2,6 +2,11 @@ import { useState } from 'react'
 import { REVENUE_ITEMS, OTHER_INCOME_GROUPS, EXPENSE_GROUPS, ALL_INCOME_ITEMS, ALL_EXPENSE_ITEMS } from '../utils/pdfExtract'
 
 const fC = v => v != null ? '$' + Math.round(Number(v)).toLocaleString() : '—'
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function formatMonth(pk) {
+  const [y, m] = pk.split('-')
+  return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`
+}
 
 const CategoryDropdown = ({ value, onChange, style }) => (
   <select value={value} onChange={e => onChange(e.target.value)} style={style}>
@@ -22,7 +27,7 @@ const CategoryDropdown = ({ value, onChange, style }) => (
   </select>
 )
 
-export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }) {
+export default function PdfPreviewFinancials({ type, data, existingData, onConfirm, onCancel }) {
   const isT12 = type === 't12_monthly'
   const rawPeriods = isT12 ? data.months || {} : data.years || {}
   const periodKeys = Object.keys(rawPeriods).sort()
@@ -57,6 +62,13 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
   })
 
   const [rows, setRows] = useState([...initialRows, ...initialUnmapped])
+  const [skipExisting, setSkipExisting] = useState(false)
+
+  // Detect months/years that already have data
+  const existing = existingData || {}
+  const conflictPeriods = isT12
+    ? periodKeys.filter(pk => existing[pk] && Object.keys(existing[pk]).length > 0)
+    : periodKeys.filter(pk => existing[pk] && Object.keys(existing[pk]).length > 0)
 
   const detectedYear = !isT12 && periodKeys.length > 0 ? periodKeys[periodKeys.length - 1] : null
   const currentYear = new Date().getFullYear()
@@ -72,10 +84,14 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
 
   function buildMergedData() {
     const result = {}
+    const periodsToWrite = skipExisting
+      ? periodKeys.filter(pk => !conflictPeriods.includes(pk))
+      : periodKeys
+
     for (const row of rows) {
       if (!row.assignedCode) continue
       if (isT12) {
-        periodKeys.forEach(pk => {
+        periodsToWrite.forEach(pk => {
           const val = row.values[pk]
           if (val != null && val !== 0) {
             if (!result[pk]) result[pk] = {}
@@ -92,10 +108,6 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
     }
     return result
   }
-
-  const dateRange = isT12
-    ? `${data.start_month || periodKeys[0] || '?'} — ${data.end_month || periodKeys[periodKeys.length - 1] || '?'}`
-    : periodKeys.join(', ')
 
   const incomeRows = rows.filter(r => {
     if (!r.assignedCode) return r.section === 'income' || r.section === 'unmapped'
@@ -114,6 +126,8 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
   rows.forEach(r => { if (r.assignedCode) codeCounts[r.assignedCode] = (codeCounts[r.assignedCode] || 0) + 1 })
   const dupCodes = Object.entries(codeCounts).filter(([, n]) => n > 1)
   const dupCodeSet = new Set(dupCodes.map(([c]) => c))
+
+  const monthsWritten = skipExisting ? periodKeys.length - conflictPeriods.length : periodKeys.length
 
   const cellPad = '5px 8px'
   const borderC = '0.5px solid rgba(0,0,0,0.1)'
@@ -138,9 +152,10 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
             <td style={{ padding: '3px 4px', borderBottom: borderC, width: 180 }}>
               <CategoryDropdown value={row.assignedCode} onChange={code => updateRow(row._key, code)} style={dropdownStyle(row.isLow, !!row.assignedCode, dupCodeSet.has(row.assignedCode))} />
             </td>
-            {periodKeys.map(pk => (
-              <td key={pk} style={numCell}>{fC(row.values[pk])}</td>
-            ))}
+            {periodKeys.map(pk => {
+              const skipped = skipExisting && conflictPeriods.includes(pk)
+              return <td key={pk} style={{ ...numCell, opacity: skipped ? 0.3 : 1 }}>{fC(row.values[pk])}</td>
+            })}
             <td style={{ ...numCell, fontWeight: 600 }}>{fC(row.total)}</td>
           </tr>
         ))}
@@ -157,11 +172,24 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
               PDF Import Preview — {isT12 ? 'T-12 Monthly' : 'Income Statement'}
             </h3>
             <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-              {dateRange} · {mappedCount} mapped{unmappedCount > 0 && ` · ${unmappedCount} unassigned`}
+              {isT12
+                ? `Importing ${periodKeys.length} month${periodKeys.length !== 1 ? 's' : ''}: ${periodKeys.map(formatMonth).join(', ')}`
+                : `Years: ${periodKeys.join(', ')}`}
+              {' · '}{mappedCount} mapped{unmappedCount > 0 && ` · ${unmappedCount} unassigned`}
             </div>
           </div>
           <button onClick={onCancel} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>×</button>
         </div>
+
+        {isT12 && conflictPeriods.length > 0 && (
+          <div style={{ padding: '10px 12px', background: '#FFFBEB', border: '0.5px solid #F59E0B', borderRadius: 8, fontSize: 12, color: '#92400E', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span>{conflictPeriods.length} month{conflictPeriods.length > 1 ? 's' : ''} already {conflictPeriods.length > 1 ? 'have' : 'has'} data: {conflictPeriods.map(formatMonth).join(', ')}</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', cursor: 'pointer' }}>
+              <input type="checkbox" checked={skipExisting} onChange={e => setSkipExisting(e.target.checked)} style={{ width: 14, height: 14, cursor: 'pointer' }} />
+              <span style={{ fontWeight: 500 }}>Skip existing months</span>
+            </label>
+          </div>
+        )}
 
         {lowCount > 0 && (
           <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '0.5px solid #F59E0B', borderRadius: 8, fontSize: 12, color: '#92400E', marginBottom: 12 }}>
@@ -180,11 +208,14 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
               <tr style={{ background: '#f5f5f5', borderBottom: borderC }}>
                 <th style={{ padding: cellPad, textAlign: 'left', fontWeight: 500, color: '#888', width: 160, borderBottom: borderC }}>PDF Line Item</th>
                 <th style={{ padding: cellPad, textAlign: 'left', fontWeight: 500, color: '#888', width: 180, borderBottom: borderC }}>Mapped To</th>
-                {periodKeys.map(pk => (
-                  <th key={pk} style={{ padding: cellPad, textAlign: 'right', fontWeight: 500, color: '#888', borderBottom: borderC, whiteSpace: 'nowrap' }}>
-                    {isT12 ? pk.replace(/^\d{4}-/, '').replace(/^0/, '') + '/' + pk.slice(2, 4) : pk}
-                  </th>
-                ))}
+                {periodKeys.map(pk => {
+                  const skipped = skipExisting && conflictPeriods.includes(pk)
+                  return (
+                    <th key={pk} style={{ padding: cellPad, textAlign: 'right', fontWeight: 500, color: skipped ? '#ccc' : '#888', borderBottom: borderC, whiteSpace: 'nowrap', textDecoration: skipped ? 'line-through' : 'none' }}>
+                      {isT12 ? pk.replace(/^\d{4}-/, '').replace(/^0/, '') + '/' + pk.slice(2, 4) : pk}
+                    </th>
+                  )
+                })}
                 <th style={{ padding: cellPad, textAlign: 'right', fontWeight: 600, color: '#888', borderBottom: borderC }}>Total</th>
               </tr>
             </thead>
@@ -211,7 +242,7 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
             onClick={() => onConfirm(buildMergedData(), isT12 ? (data.end_month || periodKeys[periodKeys.length - 1]) : null)}
             style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
           >
-            Confirm Import
+            {isT12 ? `Confirm Import (${monthsWritten} month${monthsWritten !== 1 ? 's' : ''})` : 'Confirm Import'}
           </button>
         </div>
       </div>
