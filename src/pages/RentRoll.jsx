@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import PdfImportButton from '../components/PdfImportButton'
+import PdfPreviewRentRoll from '../components/PdfPreviewRentRoll'
+import { normalizeRentRollUnits } from '../utils/pdfExtract'
 
 const UNIT_TYPES = [
   'Studio / 1 Bath', '1 Bed / 1 Bath', '2 Bed / 1 Bath', '2 Bed / 1.5 Bath', '2 Bed / 2 Bath',
@@ -22,6 +25,7 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
   const [msg, setMsg] = useState('')
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('asc')
+  const [pdfData, setPdfData] = useState(null)
 
   useEffect(() => { loadUnits() }, [proposal.id])
 
@@ -195,7 +199,18 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
         <button onClick={saveAll} disabled={saving} style={{ padding: '6px 14px', background: '#fff', border: borderC, borderRadius: 8, fontWeight: 500, fontSize: 12, opacity: saving ? 0.6 : 1 }}>
           {saving ? 'Saving...' : 'Save Rent Roll'}
         </button>
+        <PdfImportButton type="rent_roll" onExtracted={setPdfData} onError={e => { setMsg(e); setTimeout(() => setMsg(''), 5000) }} />
       </div>
+
+      {pdfData && (
+        <PdfPreviewRentRoll data={pdfData} onCancel={() => setPdfData(null)} onConfirm={imported => {
+          const normalized = normalizeRentRollUnits({ units: imported }, proposal.id)
+          setUnits(normalized)
+          setPdfData(null)
+          setMsg(`${normalized.length} units imported from PDF — click "Save Rent Roll" to persist`)
+          setTimeout(() => setMsg(''), 8000)
+        }} />
+      )}
 
       {/* Rent roll table */}
       <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto' }}>

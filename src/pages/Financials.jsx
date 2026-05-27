@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import PdfImportButton from '../components/PdfImportButton'
+import PdfPreviewFinancials from '../components/PdfPreviewFinancials'
 
 /* ═══════════════════════════════════════════════════
    LINE ITEM DEFINITIONS — Full & Summary
@@ -200,6 +202,8 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [section, setSection] = useState('annual')
+  const [pdfData, setPdfData] = useState(null)
+  const [pdfType, setPdfType] = useState(null)
   const [viewMode, setViewMode] = useState('full')
 
   const years = currentYears()
@@ -639,6 +643,7 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
                 <button key={v} onClick={() => setViewMode(v)} style={{ padding: '4px 12px', fontSize: 11, fontWeight: 500, border: 'none', borderRadius: 4, cursor: 'pointer', background: viewMode === v ? '#fff' : 'transparent', color: viewMode === v ? '#111' : '#888', boxShadow: viewMode === v ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', textTransform: 'capitalize' }}>{v}</button>
               ))}
             </div>
+            <PdfImportButton type="income_statement" onExtracted={d => { setPdfType('income_statement'); setPdfData(d) }} onError={e => { setMsg(e); setTimeout(() => setMsg(''), 5000) }} />
           </div>
           <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
@@ -737,6 +742,7 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
             <span style={{ fontSize: 12, color: '#666' }}>T-12 Period:</span>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{monthLabel(t12Months[0])} — {monthLabel(t12Months[11])}</span>
             <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+              <PdfImportButton type="t12_monthly" onExtracted={d => { setPdfType('t12_monthly'); setPdfData(d) }} onError={e => { setMsg(e); setTimeout(() => setMsg(''), 5000) }} />
               <button onClick={rewindT12} style={{ padding: '4px 10px', fontSize: 11, background: '#f5f5f5', border: '0.5px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>← Back 1 month</button>
               <button onClick={advanceT12} style={{ padding: '4px 10px', fontSize: 11, background: '#111', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 500 }}>Advance 1 month →</button>
             </div>
@@ -1111,6 +1117,30 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
             </>
           )}
         </div>
+      )}
+
+      {pdfData && pdfType && (
+        <PdfPreviewFinancials type={pdfType} data={pdfData} onCancel={() => { setPdfData(null); setPdfType(null) }} onConfirm={(mergedData, endMonth) => {
+          setData(prev => {
+            const updated = { ...prev }
+            if (pdfType === 't12_monthly') {
+              updated.t12_monthly = { ...(updated.t12_monthly || {}), ...mergedData }
+              if (endMonth) updated.growth_assumptions = { ...(updated.growth_assumptions || {}), t12_end_month: endMonth }
+            } else {
+              const existing = updated.income_statement || {}
+              const merged = { ...existing }
+              for (const [yr, codes] of Object.entries(mergedData)) {
+                merged[yr] = { ...(merged[yr] || {}), ...codes }
+              }
+              updated.income_statement = merged
+            }
+            return updated
+          })
+          setPdfData(null)
+          setPdfType(null)
+          setMsg('PDF data imported — click Save to persist')
+          setTimeout(() => setMsg(''), 6000)
+        }} />
       )}
     </div>
   )

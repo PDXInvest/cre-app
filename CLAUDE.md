@@ -40,7 +40,7 @@ Comps  (independent market database — shared across all proposals, linkable to
 
 ## Current Build Status
 
-### Completed (Phases A + B + R)
+### Completed (Phases A + B + R + C)
 - Full React + Vite + Supabase + Vercel stack live
 - `operatingModel.js` financial engine
 - Oregon rent cap logic, stabilization engine, Investor Returns
@@ -55,9 +55,9 @@ Comps  (independent market database — shared across all proposals, linkable to
 - CSV import moved to Properties page
 - Auto-match comps to properties on import via `sf_property_id`
 - Auto-filter comp analysis when launching proposal from property
+- Phase C: Refi cash flows wired into IRR — appraised value basis (NOI / refi cap rate), DSCR-constrained loan sizing, variable debt service in levered IRR and equity multiple, cash-out proceeds at refi year
 
 ### Not Yet Started
-- Phase C: Refi cash flows wired into IRR
 - Draft OM: AI-powered PDF rent roll extraction
 - Salesforce direct API sync (currently CSV import)
 
@@ -138,6 +138,14 @@ Property-first CRM model restructuring, completed in four phases:
 ### Investor Returns
 - Uses year-by-year projected NOI (not constant)
 - Sale price = Year(exitYear+1) NOI ÷ going-out cap rate
+
+### Refinance (PropertyDashboard.jsx)
+- Appraised value = projected NOI at refi month ÷ refi cap rate
+- Refi loan = min(LTV × appraised value, DSCR-constrained max loan)
+- Cash-out proceeds = new loan − old balance − refi fees
+- Levered IRR uses variable DS: acquisition DS pre-refi, refi DS post-refi
+- Refi year cash flow includes cash-out proceeds
+- Exit remaining balance uses whichever loan is active at exit year
 
 ### Growth Assumptions
 - App-level defaults in `app_settings` table
