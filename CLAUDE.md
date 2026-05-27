@@ -40,7 +40,7 @@ Comps  (independent market database — shared across all proposals, linkable to
 
 ## Current Build Status
 
-### Completed (Phases A + B + R + C)
+### Completed (Phases A + B + R + C + PDF + OM)
 - Full React + Vite + Supabase + Vercel stack live
 - `operatingModel.js` financial engine
 - Oregon rent cap logic, stabilization engine, Investor Returns
@@ -57,8 +57,10 @@ Comps  (independent market database — shared across all proposals, linkable to
 - Auto-filter comp analysis when launching proposal from property
 - Phase C: Refi cash flows wired into IRR — appraised value basis (NOI / refi cap rate), DSCR-constrained loan sizing, variable debt service in levered IRR and equity multiple, cash-out proceeds at refi year
 - PDF extraction: "Import from PDF" on Rent Roll, T-12 Monthly, and Income Statement tabs — uploads PDF → Claude API extracts structured data → preview/mapping screen → user confirms → writes to Supabase
+- Offering Memorandum builder: standalone HTML page at `/om` with 36-page template, sidebar TOC, image slots, tweaks panel
 
 ### Not Yet Started
+- OM wired to Supabase (currently uses localStorage, not database)
 - Salesforce direct API sync (currently CSV import)
 
 ---
@@ -80,6 +82,8 @@ Property-first CRM model restructuring, completed in four phases:
 /properties       → Properties list
 /properties/:id   → Property record
 /comps            → Comp database
+/om               → Offering Memorandum builder (standalone HTML, not React)
+/om?view=client   → Client view (read-only, no editor chrome)
 ```
 
 ---
@@ -100,6 +104,10 @@ Property-first CRM model restructuring, completed in four phases:
 - `src/components/PdfPreviewFinancials.jsx` — T-12 / Income Statement PDF mapping modal
 - `api/extract-pdf.js` — Vercel Serverless Function (Claude API proxy for PDF extraction)
 - `src/supabase.js` — Supabase client
+- `public/om/index.html` — Offering Memorandum builder (standalone HTML/CSS/JS, 36 pages)
+- `public/om/image-slot.js` — drag-and-drop image slot web component
+- `public/om/tweaks-app.jsx` — OM tweaks panel (accent color, font, orientation)
+- `public/om/tweaks-panel.jsx` — tweaks panel UI shell
 
 ## Supabase Tables
 - `properties` — property records (imported via Salesforce CSV), includes `photos` text array
@@ -171,6 +179,18 @@ Property-first CRM model restructuring, completed in four phases:
 - Unmapped items highlighted yellow; user assigns via dropdown or skips
 - Nothing writes to database until user clicks "Confirm Import"
 - Max PDF size: 10MB client-side check; Vercel function timeout: 60s (Pro plan)
+
+### Offering Memorandum Builder (`/om`)
+- Standalone HTML page served from `public/om/`, not a React component
+- Script paths must be absolute (`/om/image-slot.js`) — relative paths get caught by the SPA rewrite and serve React's index.html instead
+- 36 pages across 4 groups: Offering Memorandum (18), Proposal (7), Marketing Collateral (9), Outreach (2)
+- Sidebar TOC: collapsible sections, page checkboxes (include/exclude from print), drag-and-drop reorder, inline rename
+- Image slots: `<image-slot>` custom web component with shadow DOM, drag-and-drop upload, reframe (pan/zoom), replace/remove controls on hover
+- Tweaks panel: accent color, heading font, landscape/portrait toggle, postcard size — uses React + Babel Standalone (in-browser transpilation)
+- Client view: `?view=client` strips editor chrome, hides internal pages, disables image editing
+- Text editing: all headings/paragraphs have `contenteditable` in editor mode
+- State persistence: localStorage (page order, disabled pages, titles, image data, sidebar collapse)
+- Not yet wired to Supabase — data lives in localStorage only
 
 ### Growth Assumptions
 - App-level defaults in `app_settings` table
