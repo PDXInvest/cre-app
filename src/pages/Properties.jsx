@@ -128,12 +128,34 @@ export default function Properties() {
       const { error } = await supabase.from('properties').upsert(chunk, { onConflict: 'sf_property_id' })
       if (error) { console.error(error); setMsg(`Import error at row ${i}`); setImporting(false); return }
     }
-    setMsg(`${records.length.toLocaleString()} properties imported` + (dupes ? ` (${dupes.toLocaleString()} duplicates skipped)` : ''))
+    const matched = await autoMatchCompsToProperties(records)
+    setMsg(`${records.length.toLocaleString()} properties imported` + (dupes ? ` (${dupes.toLocaleString()} duplicates skipped)` : '') + (matched ? ` · ${matched} comps linked` : ''))
     setTimeout(() => setMsg(''), 6000)
     setShowPropImport(false)
     setPropPasteText('')
     setImporting(false)
     loadProperties()
+  }
+
+  async function autoMatchCompsToProperties(importedRecords) {
+    const sfIds = [...new Set(importedRecords.map(r => r.sf_property_id).filter(Boolean))]
+    if (!sfIds.length) return 0
+    let allProps = []
+    const chunkSize = 200
+    for (let i = 0; i < sfIds.length; i += chunkSize) {
+      const batch = sfIds.slice(i, i + chunkSize)
+      const { data } = await supabase.from('properties').select('id, sf_property_id').in('sf_property_id', batch)
+      if (data) allProps = allProps.concat(data)
+    }
+    if (!allProps.length) return 0
+    const propMap = {}
+    allProps.forEach(p => { propMap[p.sf_property_id] = p.id })
+    let matched = 0
+    for (const [sfId, propId] of Object.entries(propMap)) {
+      const { data } = await supabase.from('comps').update({ property_id: propId }).eq('sf_property_id', sfId).is('property_id', null).select('id')
+      if (data?.length) matched += data.length
+    }
+    return matched
   }
 
   const filtered = properties.filter(p => {

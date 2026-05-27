@@ -104,20 +104,40 @@ async function loadComps() {
     setImporting(true)
     const { data: rows } = Papa.parse(text, { header: true, skipEmptyLines: true })
     const records = rows.map(calcFields).filter(r => r.sale_id)
-    let added = 0, updated = 0
     const chunkSize = 50
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize)
       const { error } = await supabase.from('comps').upsert(chunk, { onConflict: 'sale_id' })
       if (error) { console.error(error); setMsg('Import error — check console'); setImporting(false); return }
-      chunk.forEach(() => { added++ })
     }
-    setMsg(`${records.length} comps imported successfully`)
+    const matched = await autoMatchCompsToProperties(records)
+    setMsg(`${records.length} comps imported` + (matched ? ` · ${matched} linked to properties` : ''))
     setTimeout(() => setMsg(''), 5000)
     setShowPaste(false)
     setPasteText('')
     setImporting(false)
     loadComps()
+  }
+
+  async function autoMatchCompsToProperties(comps) {
+    const sfIds = [...new Set(comps.map(c => c.sf_property_id).filter(Boolean))]
+    if (!sfIds.length) return 0
+    let allProps = []
+    const chunkSize = 200
+    for (let i = 0; i < sfIds.length; i += chunkSize) {
+      const batch = sfIds.slice(i, i + chunkSize)
+      const { data } = await supabase.from('properties').select('id, sf_property_id').in('sf_property_id', batch)
+      if (data) allProps = allProps.concat(data)
+    }
+    if (!allProps.length) return 0
+    const propMap = {}
+    allProps.forEach(p => { propMap[p.sf_property_id] = p.id })
+    let matched = 0
+    for (const [sfId, propId] of Object.entries(propMap)) {
+      const { data } = await supabase.from('comps').update({ property_id: propId }).eq('sf_property_id', sfId).is('property_id', null).select('id')
+      if (data?.length) matched += data.length
+    }
+    return matched
   }
 
   const filtered = comps.filter(c => {
