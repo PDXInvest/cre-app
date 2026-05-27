@@ -5777,6 +5777,27 @@
   }
 </script>
 
+<style id="om-print-final">
+  @media print {
+    @page { margin: 0 !important; }
+    html, body { margin: 0 !important; padding: 0 !important; }
+    .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
+    .om-shell { display: block !important; grid-template-columns: 1fr !important; }
+    .om-stage { padding: 0 !important; display: block !important; }
+    .om-page {
+      margin: 0 !important;
+      padding: var(--page-pad) !important;
+      overflow: visible !important;
+      box-sizing: border-box !important;
+      page-break-after: always !important;
+      break-after: page !important;
+      box-shadow: none !important;
+    }
+    .om-page.cover { padding: 0 !important; }
+    .om-page:last-child { page-break-after: auto !important; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  }
+</style>
 
 </body>
 </html>

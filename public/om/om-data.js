@@ -26,10 +26,25 @@
   const pr = proposal.properties || {}
   const units = unitsRes.data || []
   const fin = finRes.data || {}
+  // Fix #1/#2: dashboard data is in proposal_dashboard.data (jsonb column)
   const dash = dashRes.data?.data || {}
   const discovery = proposal.discovery_notes || {}
 
-  // ── Fetch comps (sub_market, sold, last 12 months) ────────────────────
+  console.log('OM debug — dash:', JSON.stringify(dash).slice(0, 200), 'incSrc:', dash.income_source)
+
+  // ── Fetch marketing-selected comps for this proposal ────────────────
+  const { data: compSelections } = await sb.from('comp_selections')
+    .select('comp_id').eq('proposal_id', proposalId).eq('is_marketing', true)
+  const marketingCompIds = (compSelections || []).map(cs => cs.comp_id)
+
+  let marketingComps = []
+  if (marketingCompIds.length > 0) {
+    const { data } = await sb.from('comps').select('*').in('id', marketingCompIds)
+      .order('sale_date', { ascending: false, nullsFirst: false })
+    marketingComps = (data || []).slice(0, 9)
+  }
+
+  // Also fetch sub-market comps for market stats calculation
   let allComps = []
   if (pr.sub_market) {
     let buf = [], from = 0, pageSize = 1000, done = false
@@ -48,73 +63,52 @@
   // ── Core values ───────────────────────────────────────────────────────
   const askPrice = Number(proposal.asking_price) || 0
   const totalUnits = units.length || Number(pr.total_units) || 1
-  const buildingSF = Number(pr.building_sf) || 1
-  const pricePerUnit = askPrice ? Math.round(askPrice / totalUnits) : 0
-  const pricePerSF = askPrice ? Math.round(askPrice / buildingSF) : 0
+  const buildingSF = Number(pr.building_sf) || 0
+  const pricePerUnit = askPrice && totalUnits ? Math.round(askPrice / totalUnits) : 0
+  const pricePerSF = askPrice && buildingSF ? Math.round(askPrice / buildingSF) : 0
 
-  // ── Valuation Scenario — use the income source selected in the dashboard ──
-  // This mirrors PropertyDashboard.jsx logic exactly.
-  const INCOME_GROUPS = {
-    collected_rent: ['collected_rent'],
-    rubs: ['rubs_electric', 'rubs_water_sewer', 'rubs_gas', 'rubs_trash', 'rubs_combined'],
-    parking: ['park_parking'],
-    storage: ['storage_income'],
-    other_income: ['oi_tenant_chargeback', 'oi_application_fees', 'oi_insurance_services', 'oi_deposit_forfeit', 'oi_interest', 'oi_late_charges', 'oi_nsf_fees', 'oi_laundry', 'oi_pet_rent', 'oi_misc'],
-  }
-  const EXPENSE_GROUPS = {
-    administrative: ['admin_licenses', 'admin_collection', 'admin_dues', 'admin_postage', 'admin_bank', 'admin_onboarding', 'admin_supplies'],
-    property_taxes: ['ptax_property'],
-    other_taxes: ['otax_state_local', 'otax_other'],
-    insurance: ['ins_property'],
-    utilities: ['uti_electric', 'uti_electric_vacant', 'uti_water_sewer', 'uti_gas', 'uti_trash', 'uti_combined'],
-    property_mgmt: ['pm_mgmt_fees', 'pm_lease_up', 'pm_misc_fees'],
-    repairs_maintenance: ['rm_general_maint', 'rm_general_repair', 'rm_cleaning', 'rm_supplies', 'rm_painting', 'rm_hvac', 'rm_plumbing', 'rm_appliance', 'rm_labor', 'rm_pest', 'rm_misc'],
-    landscaping: ['land_landscaping'],
-    turnover: ['turn_misc'],
-    capital_reserves: ['capres_reserves'],
-    security: ['sec_security'],
-    contract_services: ['conserv_services'],
-    advertising: ['mark_leasing', 'mark_advertising', 'mark_internet'],
-    payroll: ['pay_payroll'],
-    misc: ['misc_expenses'],
-  }
-
+  // ── Income/expense calculation (mirrors PropertyDashboard.jsx) ────────
   const t12 = fin.t12_monthly || {}
   const t12Months = Object.values(t12)
   function t12Sum(codes) {
     return t12Months.reduce((s, m) => s + codes.reduce((cs, c) => cs + (Number(m?.[c]) || 0), 0), 0)
   }
-  const t12Rent = t12Sum(INCOME_GROUPS.collected_rent)
-  const t12GOI = Object.values(INCOME_GROUPS).reduce((s, codes) => s + t12Sum(codes), 0)
-  const t12Taxes = t12Sum(EXPENSE_GROUPS.property_taxes)
-  const t12Insurance = t12Sum(EXPENSE_GROUPS.insurance)
-  const t12Utilities = t12Sum(EXPENSE_GROUPS.utilities)
-  const t12Mgmt = t12Sum(EXPENSE_GROUPS.property_mgmt)
-  const t12Repairs = t12Sum(EXPENSE_GROUPS.repairs_maintenance)
-  const t12OtherExp = t12Sum(EXPENSE_GROUPS.administrative) + t12Sum(EXPENSE_GROUPS.other_taxes) + t12Sum(EXPENSE_GROUPS.landscaping) + t12Sum(EXPENSE_GROUPS.turnover) + t12Sum(EXPENSE_GROUPS.capital_reserves) + t12Sum(EXPENSE_GROUPS.security) + t12Sum(EXPENSE_GROUPS.contract_services) + t12Sum(EXPENSE_GROUPS.advertising) + t12Sum(EXPENSE_GROUPS.payroll) + t12Sum(EXPENSE_GROUPS.misc)
+
+  const INCOME_CODES = ['collected_rent', 'rubs_electric', 'rubs_water_sewer', 'rubs_gas', 'rubs_trash', 'rubs_combined', 'park_parking', 'storage_income', 'oi_tenant_chargeback', 'oi_application_fees', 'oi_insurance_services', 'oi_deposit_forfeit', 'oi_interest', 'oi_late_charges', 'oi_nsf_fees', 'oi_laundry', 'oi_pet_rent', 'oi_misc']
+  const t12GOI = t12Sum(INCOME_CODES)
+  const t12Collected = t12Sum(['collected_rent'])
+  const t12Taxes = t12Sum(['ptax_property'])
+  const t12Insurance = t12Sum(['ins_property'])
+  const t12Utilities = t12Sum(['uti_electric', 'uti_electric_vacant', 'uti_water_sewer', 'uti_gas', 'uti_trash', 'uti_combined'])
+  const t12Mgmt = t12Sum(['pm_mgmt_fees', 'pm_lease_up', 'pm_misc_fees'])
+  const t12Repairs = t12Sum(['rm_general_maint', 'rm_general_repair', 'rm_cleaning', 'rm_supplies', 'rm_painting', 'rm_hvac', 'rm_plumbing', 'rm_appliance', 'rm_labor', 'rm_pest', 'rm_misc'])
+  const t12OtherExp = t12Sum(['admin_licenses', 'admin_collection', 'admin_dues', 'admin_postage', 'admin_bank', 'admin_onboarding', 'admin_supplies', 'otax_state_local', 'otax_other', 'land_landscaping', 'turn_misc', 'capres_reserves', 'sec_security', 'conserv_services', 'mark_leasing', 'mark_advertising', 'mark_internet', 'pay_payroll', 'misc_expenses'])
   const t12TotalExp = t12Taxes + t12Insurance + t12Utilities + t12Mgmt + t12Repairs + t12OtherExp
   const t12NOI = t12GOI - t12TotalExp
 
-  // Stated income from dashboard
   const statedGross = Number(dash.stated_income) || 0
   const statedExp = Number(dash.stated_expenses) || 0
   const statedNOI = statedGross - statedExp
 
-  // Pro forma from rent roll
   const pfRent = units.reduce((s, u) => s + (Number(u.market_rent) || 0), 0) * 12
   const pfNOI = pfRent > 0 ? pfRent - t12TotalExp : 0
 
-  // Pick income source matching dashboard selection
-  const incSrc = dash.income_source || (statedNOI > 0 ? 'Stated' : t12NOI > 0 ? 'T-12' : 'Stated')
-  const srcMap = {
-    'Stated': { goi: statedGross, exp: statedExp, noi: statedNOI },
-    'T-12': { goi: t12GOI, exp: t12TotalExp, noi: t12NOI },
-    'Scheduled': { goi: t12GOI, exp: t12TotalExp, noi: t12NOI },
+  // Pick income source from dashboard, with auto-detection fallback
+  const INCOME_SOURCES = ['Stated', 'T-12', 'Last Year', 'Scheduled', 'Stabilized', 'Market']
+  const allSrcs = {
+    'Stated':     { goi: statedGross, exp: statedExp, noi: statedNOI },
+    'T-12':       { goi: t12GOI, exp: t12TotalExp, noi: t12NOI },
+    'Last Year':  { goi: t12GOI, exp: t12TotalExp, noi: t12NOI },
+    'Scheduled':  { goi: t12GOI, exp: t12TotalExp, noi: t12NOI },
     'Stabilized': { goi: pfRent, exp: t12TotalExp, noi: pfNOI },
-    'Market': { goi: pfRent, exp: t12TotalExp, noi: pfNOI },
+    'Market':     { goi: pfRent, exp: t12TotalExp, noi: pfNOI },
   }
-  const src = srcMap[incSrc] || srcMap['Stated']
+  const autoSrc = INCOME_SOURCES.find(s => (allSrcs[s]?.noi || 0) > 0) || 'Stated'
+  const incSrc = dash.income_source || autoSrc
+  const src = allSrcs[incSrc] || allSrcs['Stated']
   const srcNOI = src.noi, srcGOI = src.goi, srcExp = src.exp
+
+  console.log('OM debug — incSrc:', incSrc, 'srcNOI:', srcNOI, 'srcGOI:', srcGOI, 't12NOI:', t12NOI, 'statedNOI:', statedNOI)
 
   const currentCap = askPrice && srcNOI ? srcNOI / askPrice : 0
   const pfCap = askPrice && pfNOI ? pfNOI / askPrice : 0
@@ -135,15 +129,12 @@
 
   const recentComps = allComps.filter(c => { const d = parseDate(c.sale_date); return d && d >= twelveMonthsAgo })
   const last6 = recentComps.filter(c => parseDate(c.sale_date) >= sixMonthsAgo)
-  const prior6 = recentComps.filter(c => { const d = parseDate(c.sale_date); return d >= twelveMonthsAgo && d < sixMonthsAgo })
-
   const medianCap = median(recentComps.filter(c => !c.x_noi && c.adv_noi > 0 && c.sale_price).map(c => c.adv_noi / c.sale_price))
   const medianPPU = median(recentComps.filter(c => c.sale_price && c.num_units).map(c => c.sale_price / c.num_units))
   const medianDOM = median(recentComps.map(c => { if (!c.listing_date || !c.sale_date) return null; return Math.round((new Date(c.sale_date) - new Date(c.listing_date)) / 86400000) }))
   const salesVolume6 = last6.reduce((s, c) => s + (Number(c.sale_price) || 0), 0)
-  const salesCount = recentComps.length
 
-  // ── Pricing band from dashboard (market_pricing) ──────────────────────
+  // ── Pricing band from dashboard ───────────────────────────────────────
   const mp = dash.market_pricing || {}
 
   // ── Format helpers ────────────────────────────────────────────────────
@@ -167,22 +158,19 @@
     sub_market: pr.sub_market || '',
     asking_price: fC(askPrice),
     total_units: String(totalUnits),
-    building_sf: buildingSF > 1 ? '±' + buildingSF.toLocaleString() + ' SF' : '—',
-    building_sf_num: buildingSF > 1 ? buildingSF.toLocaleString() : '—',
+    building_sf: buildingSF ? '±' + buildingSF.toLocaleString() + ' SF' : '—',
+    building_sf_num: buildingSF ? buildingSF.toLocaleString() : '—',
     year_built: pr.year_built ? String(pr.year_built) : '—',
     lot_size: pr.land_area_acres ? pr.land_area_acres + ' AC' : '—',
     tax_id: pr.tax_id || '—',
-    // Fix #3: show '—' when walk/bike scores are null, not hardcoded placeholders
     walk_score: pr.walk_score != null ? String(pr.walk_score) : '—',
     bike_score: pr.bike_score != null ? String(pr.bike_score) : '—',
     price_per_unit: fC(pricePerUnit),
     price_per_sf: fC(pricePerSF),
     grm: fN(grm),
-    // Fix #2: cap rates from valuation scenario (selected income source)
     current_cap: fP(currentCap),
     pro_forma_cap: fP(pfCap),
     cap_display: fP(currentCap) + ' / ' + fP(pfCap) + ' PF',
-    // Fix #6: financials from selected income source
     t12_goi: fC(srcGOI),
     t12_noi: fC(srcNOI),
     t12_taxes: fC(t12Taxes),
@@ -194,17 +182,15 @@
     t12_total_exp: fC(t12TotalExp),
     pf_goi: fC(pfRent),
     pf_noi: fC(pfNOI),
-    goi_per_unit: fC(srcGOI / totalUnits),
-    noi_per_unit: fC(srcNOI / totalUnits),
-    pf_goi_per_unit: fC(pfRent / totalUnits),
-    pf_noi_per_unit: fC(pfNOI / totalUnits),
-    // Fix #7: market stats from live comps, '—' when no data
+    goi_per_unit: srcGOI ? fC(srcGOI / totalUnits) : '—',
+    noi_per_unit: srcNOI ? fC(srcNOI / totalUnits) : '—',
+    pf_goi_per_unit: pfRent ? fC(pfRent / totalUnits) : '—',
+    pf_noi_per_unit: pfNOI ? fC(pfNOI / totalUnits) : '—',
     median_cap: medianCap != null ? fP(medianCap) : '—',
     median_ppu: medianPPU != null ? fK(medianPPU) : '—',
-    sales_count: salesCount > 0 ? String(salesCount) : '—',
+    sales_count: recentComps.length > 0 ? String(recentComps.length) : '—',
     median_dom: medianDOM != null ? String(Math.round(medianDOM)) : '—',
     sales_volume_6mo: salesVolume6 > 0 ? fM(salesVolume6) : '—',
-    // Fix #9: pricing from dashboard market_pricing, not proposal columns
     conservative_price: fC(mp.investor_floor),
     market_price_val: fC(mp.band_low),
     optimistic_price: fC(mp.suggested_price),
@@ -215,7 +201,6 @@
     recommended_price: fC(mp.suggested_price),
     target_close: proposal.target_close || '—',
     strategy: proposal.strategy || '',
-    // Discovery
     concern_1_title: discovery.concern_1_title || '',
     concern_1_answer: discovery.concern_1_answer || '',
     concern_2_title: discovery.concern_2_title || '',
@@ -226,12 +211,12 @@
 
   // ── Populate data-field elements ──────────────────────────────────────
   document.querySelectorAll('[data-field]').forEach(el => {
-    const key = el.dataset.field
-    const val = data[key]
+    const val = data[el.dataset.field]
     if (val != null && val !== '') el.textContent = val
   })
 
-  // ── Fix #4 & #5: Populate unit pages from rent roll ──────────────────
+  // ── Fix #3: Unit pages — match actual HTML structure ──────────────────
+  // Structure: .unit-top h2 (title), .pill (SF), .unit-meta .cell .v (bed/bath/sf/notes)
   const unitPages = document.querySelectorAll('.om-page.unit')
   units.forEach((unit, i) => {
     if (i >= unitPages.length) return
@@ -239,52 +224,47 @@
     const unitLabel = `Unit ${unit.unit_number || i + 1} · ${unit.unit_type || ''}`
     page.setAttribute('data-toc', unitLabel)
 
-    // Populate ALL text in the page consistently from the same unit record
-    const allText = page.querySelectorAll('h2, .h-title, .h-section')
-    allText.forEach(el => { el.textContent = unitLabel })
+    // Top section
+    const h2 = page.querySelector('.unit-top h2')
+    if (h2) h2.textContent = unitLabel
+    const pill = page.querySelector('.unit-top .pill')
+    if (pill) pill.textContent = unit.unit_sf ? '±' + Number(unit.unit_sf).toLocaleString() + ' SF' : '—'
+    const numSpan = page.querySelector('.unit-top .n')
+    if (numSpan) numSpan.textContent = String(i + 1).padStart(2, '0')
 
-    // Populate specs — find all dt/dd pairs
-    const specRows = page.querySelectorAll('.specs .row, .specs tr, dl .row')
-    const specMap = {
-      'Type': unit.unit_type || '—',
-      'Unit Type': unit.unit_type || '—',
-      'SF': unit.unit_sf ? unit.unit_sf.toLocaleString() + ' SF' : '—',
-      'Square Feet': unit.unit_sf ? unit.unit_sf.toLocaleString() + ' SF' : '—',
-      'Current Rent': fC(unit.actual_rent) + '/mo',
-      'Rent': fC(unit.actual_rent) + '/mo',
-      'Market Rent': fC(unit.market_rent) + '/mo',
-      'Pro Forma': fC(unit.market_rent) + '/mo',
-      'Status': unit.status || '—',
-      'Tenant': unit.tenant_name || '—',
-      'Lease End': unit.lease_end_date || '—',
-      'Deposit': fC(unit.security_deposit),
-    }
-    specRows.forEach(row => {
-      const dt = row.querySelector('dt')
-      const dd = row.querySelector('dd')
-      if (dt && dd) {
-        const key = dt.textContent.trim()
-        if (specMap[key] != null) dd.textContent = specMap[key]
+    // Meta cells — match by label text
+    const cells = page.querySelectorAll('.unit-meta .cell')
+    cells.forEach(cell => {
+      const label = cell.querySelector('.l')
+      const val = cell.querySelector('.v, p:not(.l)')
+      if (!label || !val) return
+      const lbl = label.textContent.trim().toLowerCase()
+      if (lbl.includes('bedroom')) {
+        const parts = (unit.unit_type || '').match(/(\d+)\s*bed/i)
+        val.textContent = parts ? parts[1] : '—'
+      } else if (lbl.includes('bathroom')) {
+        const parts = (unit.unit_type || '').match(/(\d+\.?\d*)\s*bath/i)
+        val.textContent = parts ? parts[1] : '—'
+      } else if (lbl.includes('sf') || lbl.includes('square')) {
+        val.textContent = unit.unit_sf ? Number(unit.unit_sf).toLocaleString() : '—'
+      } else if (lbl.includes('note') && !cell.classList.contains('notes')) {
+        val.textContent = unit.notes || '—'
+      } else if (cell.classList.contains('notes')) {
+        val.textContent = unit.notes || '—'
       }
     })
-
-    // Also update any loose stat values in the page
-    const statVals = page.querySelectorAll('.stat-val, .n')
-    const statData = [unit.unit_sf ? unit.unit_sf + ' SF' : '', fC(unit.actual_rent), fC(unit.market_rent)]
-    statVals.forEach((el, j) => { if (statData[j]) el.textContent = statData[j] })
   })
   for (let i = units.length; i < unitPages.length; i++) {
     unitPages[i].classList.add('is-disabled')
   }
 
-  // ── Fix #5: Unit mix table — only real unit types ─────────────────────
+  // ── Fix #5: Unit mix table — only real unit types, rebuild HTML ────────
   const finPages = document.querySelectorAll('.om-page.financials')
   finPages.forEach(finPage => {
     const tables = finPage.querySelectorAll('table')
     const unitMixTable = tables[0]
     const incExpTable = tables[1]
 
-    // Unit mix
     if (unitMixTable) {
       const tbody = unitMixTable.querySelector('tbody')
       if (tbody) {
@@ -297,35 +277,30 @@
           typeGroups[t].totalRent += Number(u.actual_rent) || 0
           typeGroups[t].totalPF += Number(u.market_rent) || 0
         })
-        const rows = Object.entries(typeGroups).map(([type, g]) => {
+        tbody.innerHTML = ''
+        Object.entries(typeGroups).forEach(([type, g]) => {
           const avgSF = g.count ? Math.round(g.totalSF / g.count) : 0
           const avgRent = g.count ? Math.round(g.totalRent / g.count) : 0
           const avgPF = g.count ? Math.round(g.totalPF / g.count) : 0
-          return { type, count: g.count, avgSF, avgRent, rentPSF: avgSF ? (avgRent / avgSF).toFixed(2) : '—', avgPF, pfPSF: avgSF ? (avgPF / avgSF).toFixed(2) : '—' }
+          const tr = document.createElement('tr')
+          tr.innerHTML = `<td>${type}</td><td>${g.count}</td><td>${avgSF.toLocaleString()}</td><td>${fC(avgRent)}</td><td>${avgSF ? '$' + (avgRent / avgSF).toFixed(2) : '—'}</td><td>${fC(avgPF)}</td><td>${avgSF ? '$' + (avgPF / avgSF).toFixed(2) : '—'}</td>`
+          tbody.appendChild(tr)
         })
         const totSF = units.reduce((s, u) => s + (Number(u.unit_sf) || 0), 0)
         const totRent = units.reduce((s, u) => s + (Number(u.actual_rent) || 0), 0)
         const totPF = units.reduce((s, u) => s + (Number(u.market_rent) || 0), 0)
-
-        tbody.innerHTML = ''
-        rows.forEach(r => {
-          const tr = document.createElement('tr')
-          tr.innerHTML = `<td>${r.type}</td><td>${r.count}</td><td>${r.avgSF.toLocaleString()}</td><td>${fC(r.avgRent)}</td><td>$${r.rentPSF}</td><td>${fC(r.avgPF)}</td><td>$${r.pfPSF}</td>`
-          tbody.appendChild(tr)
-        })
         const totalRow = document.createElement('tr')
         totalRow.className = 'is-total'
-        totalRow.innerHTML = `<td>Total / Average</td><td>${totalUnits}</td><td>${totSF.toLocaleString()}</td><td>${fC(totRent)}</td><td>$${totSF ? (totRent / totSF).toFixed(2) : '—'}</td><td>${fC(totPF)}</td><td>$${totSF ? (totPF / totSF).toFixed(2) : '—'}</td>`
+        totalRow.innerHTML = `<td>Total / Average</td><td>${totalUnits}</td><td>${totSF.toLocaleString()}</td><td>${fC(totRent)}</td><td>${totSF ? '$' + (totRent / totSF).toFixed(2) : '—'}</td><td>${fC(totPF)}</td><td>${totSF ? '$' + (totPF / totSF).toFixed(2) : '—'}</td>`
         tbody.appendChild(totalRow)
       }
     }
 
-    // Fix #6: Income & expenses table from selected income source
     if (incExpTable) {
       const tbody = incExpTable.querySelector('tbody')
       if (tbody) {
         tbody.innerHTML = ''
-        const expRows = [
+        const rows = [
           ['Gross Operating Income', srcGOI, srcGOI / totalUnits, pfRent || srcGOI, (pfRent || srcGOI) / totalUnits],
           ['Real Estate Taxes', t12Taxes, t12Taxes / totalUnits, t12Taxes, t12Taxes / totalUnits],
           ['Property Insurance', t12Insurance, t12Insurance / totalUnits, t12Insurance, t12Insurance / totalUnits],
@@ -333,11 +308,10 @@
           ['Management', t12Mgmt, t12Mgmt / totalUnits, t12Mgmt, t12Mgmt / totalUnits],
           ['Maintenance / Turnover', t12Repairs, t12Repairs / totalUnits, t12Repairs, t12Repairs / totalUnits],
           ['Other', t12OtherExp, t12OtherExp / totalUnits, t12OtherExp, t12OtherExp / totalUnits],
-          ['Total Operating Expenses', srcExp || t12TotalExp, (srcExp || t12TotalExp) / totalUnits, t12TotalExp, t12TotalExp / totalUnits],
+          ['Total Operating Expenses', t12TotalExp, t12TotalExp / totalUnits, t12TotalExp, t12TotalExp / totalUnits],
         ]
-        expRows.forEach(([label, curr, currPU, pf, pfPU], idx) => {
+        rows.forEach(([label, curr, currPU, pf, pfPU]) => {
           const tr = document.createElement('tr')
-          if (idx === expRows.length - 1) tr.className = 'is-total'
           tr.innerHTML = `<td>${label}</td><td>${fC(curr)}</td><td>${fC(currPU)}</td><td>${fC(pf)}</td><td>${fC(pfPU)}</td>`
           tbody.appendChild(tr)
         })
@@ -349,14 +323,15 @@
     }
   })
 
-  // ── Fix #8: Comps from sub-market (best available — selections not persisted) ──
-  const selectedComps = recentComps.slice(0, 7)
+  // Comps for pages 21-22: use marketing-selected comps from comp_selections.
+  // Falls back to recent sub-market comps if no marketing comps selected.
+  const selectedComps = marketingComps.length > 0 ? marketingComps : recentComps.slice(0, 9)
   const compSummaryRows = document.querySelectorAll('.comps-summary tbody tr')
   const compDetailCards = document.querySelectorAll('.comps-detail .comp-card')
 
   if (compSummaryRows.length > 0) {
     const subCells = compSummaryRows[0].querySelectorAll('td')
-    const subVals = ['★', shortAddr, pr.city || '', pr.year_built || '', totalUnits, '—', fC(askPrice), fC(pricePerUnit), fC(pricePerSF), buildingSF > 1 ? Math.round(buildingSF / totalUnits) : '—', fP(currentCap)]
+    const subVals = ['★', shortAddr, pr.city || '', pr.year_built || '', totalUnits, '—', fC(askPrice), fC(pricePerUnit), fC(pricePerSF), buildingSF && totalUnits ? Math.round(buildingSF / totalUnits) : '—', fP(currentCap)]
     subCells.forEach((td, j) => { if (subVals[j] != null) td.textContent = subVals[j] })
   }
   if (compDetailCards.length > 0) {
@@ -364,7 +339,7 @@
     const h3 = card.querySelector('h3'); if (h3) h3.textContent = data.property_name
     const addr = card.querySelector('.addr'); if (addr) addr.textContent = fullAddr
     const dds = card.querySelectorAll('dd')
-    const ddVals = [totalUnits, pr.year_built || '—', buildingSF > 1 ? Math.round(buildingSF / totalUnits) : '—', '—', fC(askPrice), fC(pricePerUnit), fC(pricePerSF), fP(currentCap)]
+    const ddVals = [totalUnits, pr.year_built || '—', buildingSF && totalUnits ? Math.round(buildingSF / totalUnits) : '—', '—', fC(askPrice), fC(pricePerUnit), fC(pricePerSF), fP(currentCap)]
     dds.forEach((dd, j) => { if (ddVals[j] != null) dd.textContent = ddVals[j] })
   }
   selectedComps.forEach((comp, i) => {
@@ -389,8 +364,7 @@
     }
   })
 
-  // ── Fix #10: Populate marketing materials ─────────────────────────────
-  // Flyers, postcards, social posts, sales letter all share these fields
+  // ── Marketing materials ───────────────────────────────────────────────
   const mktgFields = {
     '.collateral-page .title, .collateral-page h1': data.property_name,
     '.collateral-page .addr, .collateral-page .address': fullAddr,
@@ -405,17 +379,6 @@
     document.querySelectorAll(selector).forEach(el => { if (value) el.textContent = value })
   })
 
-  // Flyer specs tables
-  document.querySelectorAll('.collateral-page .specs dd, .collateral-page .spec-val').forEach((dd, i) => {
-    const vals = [totalUnits + ' Units', pr.year_built || '—', buildingSF > 1 ? buildingSF.toLocaleString() + ' SF' : '—', data.lot_size, data.walk_score, data.bike_score]
-    if (vals[i] != null) dd.textContent = vals[i]
-  })
-  // Flyer financial rows
-  document.querySelectorAll('.collateral-page .fin-row .v, .collateral-page .fin-val').forEach((el, i) => {
-    const vals = [fC(askPrice), fC(pricePerUnit), fC(pricePerSF), fC(srcGOI), fC(srcNOI), data.cap_display]
-    if (vals[i] != null) el.textContent = vals[i]
-  })
-
   // ── Expose data ───────────────────────────────────────────────────────
   const unitNotes = units.map(u => u.notes).filter(Boolean).join('; ')
   const unitMix = units.map(u => `${u.unit_type || '?'} ${u.unit_sf || '?'}SF $${u.actual_rent || 0}/mo`).join(', ')
@@ -425,7 +388,7 @@
   window.__omDataReady = true
 
   // ── AI Generate buttons ───────────────────────────────────────────────
-  const isClientView = new URLSearchParams(location.search).get('view') === 'client'
+  const isClientView = params.get('view') === 'client'
   if (!isClientView) {
     const generatePages = [
       { selector: '.om-page.summary', page: 'investment_summary', apply: (res, el) => {
@@ -500,5 +463,5 @@
   localStorage.setItem = function (key, value) { origSetItem(key, value); if (key.startsWith('om-')) saveState() }
 
   document.dispatchEvent(new Event('om-data-ready'))
-  console.log('OM: data loaded for proposal', proposalId, '—', units.length, 'units,', selectedComps.length, 'comps,', 'income source:', incSrc)
+  console.log('OM: loaded for proposal', proposalId, '—', units.length, 'units,', selectedComps.length, 'comps, income:', incSrc, 'NOI:', srcNOI)
 })()
