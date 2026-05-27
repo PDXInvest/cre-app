@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
+import Papa from 'papaparse'
 
 const STAGE_STYLE = {
   'Prospect':      { bg: '#F1EFE8', color: '#5F5E5A' },
@@ -46,11 +48,22 @@ function fmtDate(v) {
 }
 
 export default function Properties() {
-  const [view, setView] = useState('list')
+  const { id: routeId } = useParams()
+  const navigate = useNavigate()
+  const [view, setView] = useState(routeId ? 'detail' : 'list')
   const [properties, setProperties] = useState([])
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState(routeId || null)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [showPropImport, setShowPropImport] = useState(false)
+  const [propPasteText, setPropPasteText] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    if (routeId) { setSelectedId(routeId); setView('detail') }
+    else { setView('list') }
+  }, [routeId])
 
   useEffect(() => { loadProperties() }, [])
 
@@ -70,6 +83,59 @@ export default function Properties() {
     setLoading(false)
   }
 
+  async function importProperties(text) {
+    setImporting(true)
+    const clean = text.replace(/^﻿/, '')
+    const { data: rows } = Papa.parse(clean, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() })
+    const seen = new Map()
+    rows.filter(r => r['Property: ID'] || r['Property ID']).forEach(r => seen.set(r['Property: ID'] || r['Property ID'], r))
+    const unique = Array.from(seen.values())
+    const dupes = rows.length - unique.length
+    const g = (r, ...keys) => { for (const k of keys) { if (r[k] != null && r[k] !== '') return r[k] } return null }
+    const records = unique.map(r => ({
+      sf_property_id: g(r, 'Property: ID', 'Property ID'),
+      property_name: g(r, 'Property: Property Name', 'Property Name'),
+      street: r['Street'],
+      city: r['City'],
+      state: r['State/Province'],
+      zip: r['Zip/Postal Code'],
+      county: r['Property County'],
+      market: r['Market'],
+      sub_market: r['Sub-Market'],
+      neighborhood: r['Neighborhood'],
+      property_status: r['Property Status'],
+      property_sub_type: r['Property Sub Type'],
+      property_class: r['Property Class'],
+      owner_llc: r['Owner LLC'],
+      owner_contact: g(r, 'Owner/Landlord Contact', 'Owner/Landlord Contact: Full Name'),
+      last_sale_date: r['Last Sale Date'] || null,
+      last_sale_amount: parseFloat(r['Last Sale Amount']) || null,
+      last_sale_price_per_unit: parseFloat(r['Last Sale Price (per Unit)']) || null,
+      last_cap_rate: parseFloat(r['Last Cap Rate (%)']) || null,
+      total_units: parseInt(r['Total Units']) || null,
+      num_buildings: parseInt(r['# of Buildings']) || null,
+      num_floors: parseInt(r['# of Floors']) || null,
+      building_sf: parseFloat(r['Total Building Area (SF)']) || null,
+      land_area_acres: parseFloat(r['Land Area (Acre)']) || null,
+      tax_id: r['Tax ID'],
+      year_built: parseInt(r['Year Built']) || null,
+      year_built_era: r['Year Built Era'],
+    }))
+    const chunkSize = 500
+    for (let i = 0; i < records.length; i += chunkSize) {
+      const chunk = records.slice(i, i + chunkSize)
+      setMsg(`Importing properties... ${Math.min(i + chunkSize, records.length).toLocaleString()} / ${records.length.toLocaleString()}`)
+      const { error } = await supabase.from('properties').upsert(chunk, { onConflict: 'sf_property_id' })
+      if (error) { console.error(error); setMsg(`Import error at row ${i}`); setImporting(false); return }
+    }
+    setMsg(`${records.length.toLocaleString()} properties imported` + (dupes ? ` (${dupes.toLocaleString()} duplicates skipped)` : ''))
+    setTimeout(() => setMsg(''), 6000)
+    setShowPropImport(false)
+    setPropPasteText('')
+    setImporting(false)
+    loadProperties()
+  }
+
   const filtered = properties.filter(p => {
     if (!search) return true
     const q = search.toLowerCase()
@@ -82,17 +148,38 @@ export default function Properties() {
   if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading...</div>
 
   if (view === 'detail') return (
-    <PropertyDetail propertyId={selectedId} onBack={() => { setView('list'); loadProperties() }} />
+    <PropertyDetail propertyId={selectedId} onBack={() => { navigate('/properties'); loadProperties() }} />
   )
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 500 }}>Properties</h1>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{properties.length} properties</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+            {properties.length} properties
+            {msg && <span style={{ color: '#27500A', marginLeft: 8 }}>{msg}</span>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setShowPropImport(p => !p)} style={{ padding: '8px 14px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13 }}>
+            Import properties
+          </button>
         </div>
       </div>
+
+      {showPropImport && (
+        <div style={{ background: '#fff', border: '0.5px solid #378ADD', borderRadius: 12, padding: '1rem', marginBottom: '1rem' }}>
+          <p style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Open your property CSV in TextEdit → Cmd+A → Cmd+C → paste below:</p>
+          <textarea value={propPasteText} onChange={e => setPropPasteText(e.target.value)} placeholder="Paste property CSV here..." style={{ width: '100%', minHeight: 80, border: '0.5px solid #ddd', borderRadius: 8, padding: 10, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={() => importProperties(propPasteText)} disabled={importing || !propPasteText.trim()} style={{ padding: '7px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: importing ? 0.6 : 1 }}>
+              {importing ? 'Importing...' : 'Import'}
+            </button>
+            <button onClick={() => { setShowPropImport(false); setPropPasteText('') }} style={{ padding: '7px 14px', background: '#f5f5f5', border: '0.5px solid #ddd', borderRadius: 8 }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: '1rem' }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by address, name, or owner..."
@@ -117,7 +204,7 @@ export default function Properties() {
           const activeProposal = (p.proposals || []).find(pr => ACTIVE_STAGES.includes(pr.stage))
           const stSt = activeProposal ? STAGE_STYLE[activeProposal.stage] : null
           return (
-            <div key={p.id} onClick={() => { setSelectedId(p.id); setView('detail') }}
+            <div key={p.id} onClick={() => navigate(`/properties/${p.id}`)}
               style={{ display: 'flex', alignItems: 'center', padding: '12px 14px', borderBottom: '0.5px solid rgba(0,0,0,0.06)', cursor: 'pointer', background: '#fff' }}
               onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
               onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
@@ -174,6 +261,7 @@ const EDIT_SECTIONS = [
 ]
 
 function PropertyDetail({ propertyId, onBack }) {
+  const navigate = useNavigate()
   const [property, setProperty] = useState(null)
   const [tab, setTab] = useState('overview')
   const [loading, setLoading] = useState(true)
@@ -309,6 +397,7 @@ function PropertyDetail({ propertyId, onBack }) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={openEdit} style={{ padding: '8px 14px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Edit</button>
+          <button onClick={() => navigate(`/proposals?new&property=${propertyId}`)} style={{ padding: '8px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>+ New proposal</button>
         </div>
       </div>
 
