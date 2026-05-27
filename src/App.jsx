@@ -20,6 +20,9 @@ export default function App() {
           <NavLink to="/comps" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             Comp Database
           </NavLink>
+          <a href="/om" target="_blank" rel="noopener" className="nav-item">
+            Offering Memo
+          </a>
         </nav>
         <main className="main-content">
           <Routes>

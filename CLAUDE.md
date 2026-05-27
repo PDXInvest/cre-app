@@ -157,8 +157,17 @@ Property-first CRM model restructuring, completed in four phases:
 - API key: `ANTHROPIC_API_KEY` set in Vercel env vars (not VITE_ prefix — server-side only)
 - Three extraction types: `rent_roll`, `t12_monthly`, `income_statement`
 - Prompts use semantic field matching — identifies fields by meaning, not exact label (handles any management company format)
+- Prompts include CRITICAL instruction: every PDF line item must appear mapped or unmapped, never silently dropped
 - Rent Roll merge behavior: matches imported units to existing by unit number; only fills in blank fields (never overwrites existing data); appends new unit numbers. Uses `mergeRentRollUnits()` in `pdfExtract.js`.
-- T-12 / Income Statement: Claude returns coded data + unmapped items → mapping modal with dropdowns → merges into existing financials JSON (overwrites matching codes, preserves others)
+- T-12 Monthly: supports partial-year imports and multi-statement stitching (e.g., Jan-Dec 2025 + Jan-Mar 2026 YTD)
+  - Deep merge at code level within each month — codes not in import are preserved
+  - Only months with at least one non-zero value are imported (empty months excluded)
+  - `t12_end_month` set to last month with actual data, not PDF's declared period end
+  - Conflict detection: warns when importing months that already have data, with "Skip existing months" toggle
+  - Multiple sequential uploads merge correctly (React `setData(prev => ...)` ensures no state race)
+- Income Statement: year selector lets user redirect data to a different year before confirming
+- All rows have editable category dropdowns (not just flagged ones) — grouped by section matching Financials.jsx order
+- Duplicate category detection: when multiple PDF items map to the same code, amounts are summed and a blue info banner appears
 - Unmapped items highlighted yellow; user assigns via dropdown or skips
 - Nothing writes to database until user clicks "Confirm Import"
 - Max PDF size: 10MB client-side check; Vercel function timeout: 60s (Pro plan)
