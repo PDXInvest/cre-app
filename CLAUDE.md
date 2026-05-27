@@ -156,8 +156,9 @@ Property-first CRM model restructuring, completed in four phases:
 - Architecture: browser → Vercel Serverless Function (`api/extract-pdf.js`) → Claude API (`claude-sonnet-4-20250514`) → structured JSON
 - API key: `ANTHROPIC_API_KEY` set in Vercel env vars (not VITE_ prefix — server-side only)
 - Three extraction types: `rent_roll`, `t12_monthly`, `income_statement`
-- Rent Roll: Claude returns unit array → preview modal → sets units in state → user saves
-- T-12 / Income Statement: Claude returns coded data + unmapped items → mapping modal with dropdowns → merges into existing financials JSON
+- Prompts use semantic field matching — identifies fields by meaning, not exact label (handles any management company format)
+- Rent Roll merge behavior: matches imported units to existing by unit number; only fills in blank fields (never overwrites existing data); appends new unit numbers. Uses `mergeRentRollUnits()` in `pdfExtract.js`.
+- T-12 / Income Statement: Claude returns coded data + unmapped items → mapping modal with dropdowns → merges into existing financials JSON (overwrites matching codes, preserves others)
 - Unmapped items highlighted yellow; user assigns via dropdown or skips
 - Nothing writes to database until user clicks "Confirm Import"
 - Max PDF size: 10MB client-side check; Vercel function timeout: 60s (Pro plan)
