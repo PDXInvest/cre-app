@@ -324,43 +324,91 @@
   // Comps for pages 21-22: use marketing-selected comps from comp_selections.
   // Falls back to recent sub-market comps if no marketing comps selected.
   const selectedComps = marketingComps.length > 0 ? marketingComps : recentComps.slice(0, 9)
-  const compSummaryRows = document.querySelectorAll('.comps-summary tbody tr')
-  const compDetailCards = document.querySelectorAll('.comps-detail .comp-card')
 
-  if (compSummaryRows.length > 0) {
-    const subCells = compSummaryRows[0].querySelectorAll('td')
-    const subVals = ['★', shortAddr, pr.city || '', pr.year_built || '', totalUnits, '—', fC(askPrice), fC(pricePerUnit), fC(pricePerSF), buildingSF && totalUnits ? Math.round(buildingSF / totalUnits) : '—', fP(currentCap)]
-    subCells.forEach((td, j) => { if (subVals[j] != null) td.textContent = subVals[j] })
+  // Helper to compute comp metrics
+  function compMetrics(c) {
+    const ppu = c.sale_price && c.num_units ? Math.round(c.sale_price / c.num_units) : null
+    const psf = c.sale_price && c.building_sf ? Math.round(c.sale_price / c.building_sf) : null
+    const avgSF = c.building_sf && c.num_units ? Math.round(c.building_sf / c.num_units) : null
+    const cap = !c.x_noi && c.adv_noi > 0 && c.sale_price ? c.adv_noi / c.sale_price : null
+    const dt = c.sale_date ? new Date(c.sale_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'
+    return { ppu, psf, avgSF, cap, dt }
   }
-  if (compDetailCards.length > 0) {
-    const card = compDetailCards[0]
-    const h3 = card.querySelector('h3'); if (h3) h3.textContent = data.property_name
-    const addr = card.querySelector('.addr'); if (addr) addr.textContent = fullAddr
-    const dds = card.querySelectorAll('dd')
-    const ddVals = [totalUnits, pr.year_built || '—', buildingSF && totalUnits ? Math.round(buildingSF / totalUnits) : '—', '—', fC(askPrice), fC(pricePerUnit), fC(pricePerSF), fP(currentCap)]
-    dds.forEach((dd, j) => { if (ddVals[j] != null) dd.textContent = ddVals[j] })
+
+  // Rebuild summary table dynamically (supports any number of comps)
+  const summaryTbody = document.querySelector('.comps-summary tbody')
+  if (summaryTbody) {
+    summaryTbody.innerHTML = ''
+    // Subject row
+    const subRow = document.createElement('tr')
+    subRow.className = 'is-subject'
+    subRow.innerHTML = `<td>★</td><td>${data.property_name} <span style="font-weight:500;color:var(--charcoal-3);font-size:10px"> (Subject)</span></td><td>${pr.city || ''}</td><td>${pr.year_built || ''}</td><td>${totalUnits}</td><td>—</td><td>${fC(askPrice)}</td><td>${fC(pricePerUnit)}</td><td>${fC(pricePerSF)}</td><td>${buildingSF && totalUnits ? Math.round(buildingSF / totalUnits) : '—'}</td><td>${fP(currentCap)}</td>`
+    summaryTbody.appendChild(subRow)
+    // Comp rows
+    let sumPrice = 0, sumPPU = 0, sumPSF = 0, sumCap = 0, capCount = 0
+    selectedComps.forEach((comp, i) => {
+      const m = compMetrics(comp)
+      const tr = document.createElement('tr')
+      tr.innerHTML = `<td>${String(i + 1).padStart(2, '0')}</td><td>${comp.property_name || comp.sale_name || '—'}</td><td>${comp.property_county || '—'}</td><td>${comp.year_built || '—'}</td><td>${comp.num_units || '—'}</td><td>${m.dt}</td><td>${fC(comp.sale_price)}</td><td>${fC(m.ppu)}</td><td>${fC(m.psf)}</td><td>${m.avgSF || '—'}</td><td>${m.cap ? fP(m.cap) : '—'}</td>`
+      summaryTbody.appendChild(tr)
+      if (comp.sale_price) sumPrice += comp.sale_price
+      if (m.ppu) sumPPU += m.ppu
+      if (m.psf) sumPSF += m.psf
+      if (m.cap) { sumCap += m.cap; capCount++ }
+    })
+    // Averages row
+    const n = selectedComps.length || 1
+    const avgRow = document.createElement('tr')
+    avgRow.className = 'is-avg'
+    avgRow.innerHTML = `<td></td><td>Averages</td><td>—</td><td>—</td><td>—</td><td>—</td><td>${fC(sumPrice / n)}</td><td>${fC(sumPPU / n)}</td><td>${fC(sumPSF / n)}</td><td>—</td><td>${capCount ? fP(sumCap / capCount) : '—'}</td>`
+    summaryTbody.appendChild(avgRow)
   }
-  selectedComps.forEach((comp, i) => {
-    const ppu = comp.sale_price && comp.num_units ? Math.round(comp.sale_price / comp.num_units) : null
-    const psf = comp.sale_price && comp.building_sf ? Math.round(comp.sale_price / comp.building_sf) : null
-    const avgUnitSF = comp.building_sf && comp.num_units ? Math.round(comp.building_sf / comp.num_units) : null
-    const cap = !comp.x_noi && comp.adv_noi > 0 && comp.sale_price ? comp.adv_noi / comp.sale_price : null
-    const saleDate = comp.sale_date ? new Date(comp.sale_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'
-    if (compSummaryRows[i + 1]) {
-      const cells = compSummaryRows[i + 1].querySelectorAll('td')
-      const vals = [String(i + 1), comp.property_name || comp.sale_name || '—', comp.property_county || '—', comp.year_built || '—', comp.num_units || '—', saleDate, fC(comp.sale_price), fC(ppu), fC(psf), avgUnitSF || '—', cap ? fP(cap) : '—']
-      cells.forEach((td, j) => { if (vals[j] != null) td.textContent = vals[j] })
+
+  // Rebuild detail cards dynamically
+  const detailPage = document.querySelector('.comps-detail')
+  if (detailPage) {
+    const existingCards = detailPage.querySelectorAll('.cards')
+    existingCards.forEach(c => c.remove())
+
+    function makeCard(label, name, address, fields, photoId, isSubject) {
+      return `<div class="comp-card${isSubject ? ' is-subject' : ''}">
+        <div class="photo"><image-slot id="${photoId}" placeholder="${label} photo"></image-slot></div>
+        <div class="body">
+          <p class="label">${label}</p>
+          <h3>${name}</h3>
+          <p class="addr">${address}</p>
+          <dl>${fields.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+        </div>
+      </div>`
     }
-    if (compDetailCards[i + 1]) {
-      const card = compDetailCards[i + 1]
-      const label = card.querySelector('.comp-label'); if (label) label.textContent = `Comparable ${i + 1}`
-      const h3 = card.querySelector('h3'); if (h3) h3.textContent = comp.property_name || comp.sale_name || '—'
-      const addr = card.querySelector('.addr'); if (addr) addr.textContent = [comp.sub_market, comp.property_county].filter(Boolean).join(', ')
-      const dds = card.querySelectorAll('dd')
-      const ddVals = [comp.num_units || '—', comp.year_built || '—', avgUnitSF || '—', saleDate, fC(comp.sale_price), fC(ppu), fC(psf), cap ? fP(cap) : '—']
-      dds.forEach((dd, j) => { if (ddVals[j] != null) dd.textContent = ddVals[j] })
+
+    // Subject card
+    const subjectFields = [['Units', totalUnits], ['Year', pr.year_built || '—'], ['Avg SF', buildingSF && totalUnits ? Math.round(buildingSF / totalUnits) : '—'], ['Sale Date', '—'], ['Price', fC(askPrice)], ['$ / Unit', fC(pricePerUnit)], ['$ / SF', fC(pricePerSF)], ['Cap', fP(currentCap)]]
+    let cardsHtml = makeCard('★ Subject Property', data.property_name, fullAddr, subjectFields, 'comp-subject-photo', true)
+
+    // Comp cards
+    selectedComps.forEach((comp, i) => {
+      const m = compMetrics(comp)
+      const fields = [['Units', comp.num_units || '—'], ['Year', comp.year_built || '—'], ['Avg SF', m.avgSF || '—'], ['Sale Date', m.dt], ['Price', fC(comp.sale_price)], ['$ / Unit', fC(m.ppu)], ['$ / SF', fC(m.psf)], ['Cap', m.cap ? fP(m.cap) : '—']]
+      cardsHtml += makeCard(`Comp · ${String(i + 1).padStart(2, '0')}`, comp.property_name || comp.sale_name || '—', [comp.sub_market, comp.property_county].filter(Boolean).join(', '), fields, `comp-${i + 1}-photo`, false)
+    })
+
+    // Split into groups of 4 for layout
+    const cardEls = []
+    const temp = document.createElement('div')
+    temp.innerHTML = cardsHtml
+    Array.from(temp.children).forEach(c => cardEls.push(c))
+
+    const footer = detailPage.querySelector('.page-footer')
+    for (let i = 0; i < cardEls.length; i += 4) {
+      const group = document.createElement('div')
+      group.className = 'cards'
+      if (i > 0) group.style.marginTop = '18px'
+      cardEls.slice(i, i + 4).forEach(c => group.appendChild(c))
+      if (footer) detailPage.insertBefore(group, footer)
+      else detailPage.appendChild(group)
     }
-  })
+  }
 
   // ── Marketing materials ───────────────────────────────────────────────
   const mktgFields = {
