@@ -45,7 +45,11 @@ const EXPENSE_CODES = `Valid expense codes — use these exact strings as JSON k
 - capres_reserves: Capital reserves, replacement reserves, reserve for replacement, capital expenditure reserves, CapEx reserves, reserves
 - mark_advertising: Advertising, marketing, leasing costs, internet listing, promotional, signage, marketing & advertising, online advertising, ILS fees
 - pay_payroll: Payroll, on-site staff wages, salary, employee benefits, workers comp, on-site personnel, office staff, manager salary (non-maintenance staff)
-- sec_security: Security, security services, patrol, alarm, camera, access control, gate, security system`
+- conserv_services: Contract services, professional services, outside services, vendor services, service contracts
+- mark_leasing: Leasing commissions, leasing fees, broker fees, referral fees
+- mark_internet: Internet advertising, ILS, online listings, internet listing services, website
+- sec_security: Security, security services, patrol, alarm, camera, access control, gate, security system
+- misc_expenses: Miscellaneous expenses, misc expense, other expenses, sundry, other operating expenses, contingency, unclassified expenses`
 
 const PROMPTS = {
   rent_roll: `Extract the rent roll data from this PDF document. Use semantic understanding to identify fields — column labels vary widely across management companies, brokers, and accounting software. Prioritize meaning over exact label matching.

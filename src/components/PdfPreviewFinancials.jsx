@@ -110,12 +110,19 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
   const unmappedCount = rows.filter(r => !r.assignedCode).length
   const lowCount = rows.filter(r => r.isLow).length
 
+  const codeCounts = {}
+  rows.forEach(r => { if (r.assignedCode) codeCounts[r.assignedCode] = (codeCounts[r.assignedCode] || 0) + 1 })
+  const dupCodes = Object.entries(codeCounts).filter(([, n]) => n > 1)
+  const dupCodeSet = new Set(dupCodes.map(([c]) => c))
+
   const cellPad = '5px 8px'
   const borderC = '0.5px solid rgba(0,0,0,0.1)'
   const numCell = { padding: cellPad, textAlign: 'right', fontSize: 11, borderBottom: borderC, whiteSpace: 'nowrap' }
-  const dropdownStyle = (isLow, hasCode) => ({
-    width: '100%', padding: '4px 6px', border: isLow ? '0.5px solid #F59E0B' : '0.5px solid #ddd',
-    borderRadius: 4, fontSize: 11, background: !hasCode ? '#FFFBEB' : isLow ? '#FFFBEB' : '#fff',
+  const dropdownStyle = (isLow, hasCode, isDup) => ({
+    width: '100%', padding: '4px 6px',
+    border: isDup ? '0.5px solid #378ADD' : isLow ? '0.5px solid #F59E0B' : '0.5px solid #ddd',
+    borderRadius: 4, fontSize: 11,
+    background: !hasCode ? '#FFFBEB' : isDup ? '#E6F1FB' : isLow ? '#FFFBEB' : '#fff',
   })
 
   function RowGroup({ title, groupRows }) {
@@ -129,7 +136,7 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
               {row.pdfLabel}
             </td>
             <td style={{ padding: '3px 4px', borderBottom: borderC, width: 180 }}>
-              <CategoryDropdown value={row.assignedCode} onChange={code => updateRow(row._key, code)} style={dropdownStyle(row.isLow, !!row.assignedCode)} />
+              <CategoryDropdown value={row.assignedCode} onChange={code => updateRow(row._key, code)} style={dropdownStyle(row.isLow, !!row.assignedCode, dupCodeSet.has(row.assignedCode))} />
             </td>
             {periodKeys.map(pk => (
               <td key={pk} style={numCell}>{fC(row.values[pk])}</td>
@@ -159,6 +166,11 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
         {lowCount > 0 && (
           <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '0.5px solid #F59E0B', borderRadius: 8, fontSize: 12, color: '#92400E', marginBottom: 12 }}>
             {lowCount} item{lowCount > 1 ? 's have' : ' has'} low-confidence matches (highlighted) — review before confirming.
+          </div>
+        )}
+        {dupCodes.length > 0 && (
+          <div style={{ padding: '8px 12px', background: '#E6F1FB', border: '0.5px solid #378ADD', borderRadius: 8, fontSize: 12, color: '#0C447C', marginBottom: 12 }}>
+            {dupCodes.length} categor{dupCodes.length > 1 ? 'ies have' : 'y has'} multiple items mapped — amounts will be combined.
           </div>
         )}
 
