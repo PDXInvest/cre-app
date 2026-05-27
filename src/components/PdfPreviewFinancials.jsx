@@ -245,7 +245,7 @@ export default function PdfPreviewFinancials({ type, data, existingData, onConfi
           )}
           <button onClick={onCancel} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
           <button
-            onClick={() => onConfirm(buildMergedData(), isT12 ? (data.end_month || periodKeys[periodKeys.length - 1]) : null)}
+            onClick={() => onConfirm(buildMergedData(), isT12 ? periodKeys[periodKeys.length - 1] : null)}
             style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
           >
             {isT12 ? `Confirm Import (${monthsWritten} month${monthsWritten !== 1 ? 's' : ''})` : 'Confirm Import'}
