@@ -416,7 +416,43 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
     return srcNOI * Math.pow(1 + growthRate, exitYear + 1)
   })()
   const salePrice   = goingOutCap > 0 && exitNOI > 0 ? exitNOI / goingOutCap : 0
-  const remBal      = loanBalance(annRate, amortYrs, loanAmt, exitYear)
+
+  // ── Refi (must come before exit balance / IRR) ────────────────────────────
+  const refiEnabled  = refi.enabled === true
+  const refiMonth    = nv(refi.refi_month, 60)
+  const refiYear     = Math.ceil(refiMonth / 12)
+  const refiCapRate  = nv(refi.refi_cap_rate, 0) / 100
+  const refiFeesPct  = nv(refi.refi_fees_pct, 1) / 100
+
+  const refiNOI = (() => {
+    if (hasOpModel && opModel.annualProjections[refiYear - 1])
+      return opModel.annualProjections[refiYear - 1].noi
+    return srcNOI * Math.pow(1 + nv(ga('market_rent_growth'), 0.0325), refiYear)
+  })()
+
+  const refiValue    = refiCapRate > 0 && refiNOI > 0 ? refiNOI / refiCapRate : selPrice
+  const refiLoanLTV  = refiValue * (nv(refi.loan_pct, 75) / 100)
+  const refiDSF      = annDSF(nv(refi.interest_rate, 6.5), nv(refi.amortization, 30))
+  const refiLoanDSCR = nv(refi.target_dscr) > 0 && refiDSF > 0
+    ? refiNOI / (nv(refi.target_dscr) * refiDSF) : Infinity
+  const refiLoan     = refiEnabled ? Math.min(refiLoanLTV, refiLoanDSCR === Infinity ? refiLoanLTV : refiLoanDSCR) : 0
+  const refiBinding  = refiEnabled && refiLoanDSCR < refiLoanLTV ? 'DSCR' : 'LTV'
+
+  const refiMoAmort  = pmtCalc(nv(refi.interest_rate, 6.5), nv(refi.amortization, 30), refiLoan)
+  const refiMoIO     = refiLoan > 0 && nv(refi.interest_rate) > 0 ? refiLoan * (nv(refi.interest_rate) / 100 / 12) : 0
+  const refiAnnualDS = refiMoAmort * 12
+
+  const oldBalAtRefi = loanBalance(annRate, amortYrs, loanAmt, refiYear)
+  const refiCosts    = refiLoan * refiFeesPct
+  const refiProceeds = refiLoan - oldBalAtRefi - refiCosts
+  const refiDSCRval  = refiAnnualDS > 0 ? refiNOI / refiAnnualDS : null
+
+  // ── Exit calculations ─────────────────────────────────────────────────────
+  const remBal = (() => {
+    if (refiEnabled && refiYear <= exitYear)
+      return loanBalance(nv(refi.interest_rate, 6.5), nv(refi.amortization, 30), refiLoan, exitYear - refiYear)
+    return loanBalance(annRate, amortYrs, loanAmt, exitYear)
+  })()
   const netProceeds = salePrice>0 ? salePrice*(1-saleExpPct)-remBal : 0
   const annCF       = yr1NOI - annualDS
   const coc         = totalAcq>0 ? annCF/totalAcq : null
@@ -425,38 +461,42 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   const stabMonth   = opModel?.propertyStabilizedMonth
   const stabNOI     = opModel?.stabilizedYear?.noi
 
+  // Helper: debt service for a given year, accounting for refi
+  function dsForYear(yr) {
+    if (refiEnabled && yr > refiYear) return refiAnnualDS
+    return annualDS
+  }
+
   const levIRR = (() => {
     if (!totalAcq||exitYear<1||!salePrice) return null
     const cfs = [-totalAcq]
-    if (hasOpModel) {
-      for (let yr=1; yr<=exitYear; yr++) {
-        const yNOI = opModel.annualProjections[yr-1]?.noi || srcNOI
-        const yDS  = annualDS  // constant debt service (Phase C will handle refi)
-        const yCF  = yNOI - yDS
-        cfs.push(yCF + (yr===exitYear ? netProceeds : 0))
-      }
-    } else {
-      for (let yr=1; yr<=exitYear; yr++) cfs.push(annCF+(yr===exitYear?netProceeds:0))
+    for (let yr=1; yr<=exitYear; yr++) {
+      const yNOI = hasOpModel ? (opModel.annualProjections[yr-1]?.noi || srcNOI) : srcNOI
+      const yDS  = dsForYear(yr)
+      let yCF = yNOI - yDS
+      if (refiEnabled && yr === refiYear) yCF += refiProceeds
+      if (yr === exitYear) yCF += netProceeds
+      cfs.push(yCF)
     }
     return irrCalc(cfs)
   })()
   const unlevIRR = (() => {
     if (!selPrice||exitYear<1||!salePrice) return null
     const cfs = [-selPrice]
-    if (hasOpModel) {
-      for (let yr=1; yr<=exitYear; yr++) {
-        const yNOI = opModel.annualProjections[yr-1]?.noi || srcNOI
-        cfs.push(yNOI + (yr===exitYear ? salePrice*(1-saleExpPct) : 0))
-      }
-    } else {
-      for (let yr=1; yr<=exitYear; yr++) cfs.push(srcNOI+(yr===exitYear?salePrice*(1-saleExpPct):0))
+    for (let yr=1; yr<=exitYear; yr++) {
+      const yNOI = hasOpModel ? (opModel.annualProjections[yr-1]?.noi || srcNOI) : srcNOI
+      cfs.push(yNOI + (yr===exitYear ? salePrice*(1-saleExpPct) : 0))
     }
     return irrCalc(cfs)
   })()
   const levEM = totalAcq>0&&exitYear>0 ? (() => {
-    if (!hasOpModel) return (annCF*(exitYear-1)+annCF+netProceeds)/totalAcq
-    const totalCF = opModel.annualProjections.slice(0,exitYear).reduce((s,y)=>s+(y.noi-annualDS),0)
-    return (totalCF+netProceeds)/totalAcq
+    let totalCF = 0
+    for (let yr=1; yr<=exitYear; yr++) {
+      const yNOI = hasOpModel ? (opModel.annualProjections[yr-1]?.noi || srcNOI) : srcNOI
+      totalCF += yNOI - dsForYear(yr)
+      if (refiEnabled && yr === refiYear) totalCF += refiProceeds
+    }
+    return (totalCF + netProceeds) / totalAcq
   })() : null
 
   // ── CapEx ──────────────────────────────────────────────────────────────────
@@ -469,12 +509,6 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   function updCapex(key,idx,field,val) { setDash(p => { const rs=[...(p[key]||[])]; rs[idx]={...rs[idx],[field]:val}; return {...p,[key]:rs} }) }
   function addRow(key)       { setDash(p => ({ ...p, [key]:[...(p[key]||[]), blankRow()] })) }
   function removeRow(key,i)  { setDash(p => ({ ...p, [key]:(p[key]||[]).filter((_,j)=>j!==i) })) }
-
-  // ── Refi ───────────────────────────────────────────────────────────────────
-  const refiEnabled = refi.enabled===true
-  const refiLoan    = selPrice*(nv(refi.loan_pct,75)/100)
-  const refiMoAmort = pmtCalc(nv(refi.interest_rate), nv(refi.amortization,30), refiLoan)
-  const refiMoIO    = refiLoan>0&&refi.interest_rate>0 ? refiLoan*(nv(refi.interest_rate)/100/12) : 0
 
   if (loading) return <div style={{ padding:'3rem', textAlign:'center', color:'#888', fontSize:13 }}>Loading dashboard...</div>
 
@@ -782,11 +816,20 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
 
         {/* Stabilized summary bar — from operating model */}
         {hasOpModel && stabMonth != null && (
-          <div style={{ display:'flex', gap:24, padding:'10px 14px', background:'#F8F7FF', borderRadius:8, marginBottom:16, fontSize:12, flexWrap:'wrap', alignItems:'center' }}>
+          <div style={{ display:'flex', gap:24, padding:'10px 14px', background:'#F8F7FF', borderRadius:8, marginBottom:refiEnabled?8:16, fontSize:12, flexWrap:'wrap', alignItems:'center' }}>
             <span style={{ color:'#888', fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Stabilized</span>
             <span>Month <strong style={{color:'#111'}}>{stabMonth}</strong></span>
             {stabNOI > 0 && <span>Stabilized NOI <strong style={{color:'#27500A'}}>{fmtC(stabNOI)}</strong></span>}
             {stabNOI > 0 && selPrice > 0 && <span>Stabilized cap <strong style={{color:'#111'}}>{fmtP(stabNOI/selPrice)}</strong></span>}
+          </div>
+        )}
+        {refiEnabled && refiLoan > 0 && (
+          <div style={{ display:'flex', gap:24, padding:'10px 14px', background:'#EAF3DE', borderRadius:8, marginBottom:16, fontSize:12, flexWrap:'wrap', alignItems:'center' }}>
+            <span style={{ color:'#888', fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Refinance</span>
+            <span>Year <strong style={{color:'#111'}}>{refiYear}</strong></span>
+            <span>Cash-out <strong style={{color:refiProceeds>=0?'#27500A':'#791F1F'}}>{fmtC(refiProceeds)}</strong></span>
+            <span>New DS <strong style={{color:'#111'}}>{fmtC(refiAnnualDS)}</strong>/yr</span>
+            {refiDSCRval && <span>DSCR <strong style={{color:dc(refiDSCRval)}}>{fmtN(refiDSCRval)}</strong></span>}
           </div>
         )}
 
@@ -880,32 +923,53 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
         </div>
         {!refiEnabled
           ? <div style={{ fontSize:12, color:'#bbb' }}>Refinance not included in this analysis.</div>
-          : <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:28 }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi month</div>
-                    <input type="number" value={refi.refi_month||''} onChange={e=>setRefi('refi_month',e.target.value)} placeholder="60" style={inp}/></div>
-                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Target DSCR</div>
-                    <input type="number" value={refi.target_dscr||''} onChange={e=>setRefi('target_dscr',e.target.value)} placeholder="1.25" step="0.05" style={inp}/></div>
+          : <>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:28, marginBottom:16 }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi month</div>
+                      <input type="number" value={refi.refi_month||''} onChange={e=>setRefi('refi_month',e.target.value)} placeholder="60" style={inp}/></div>
+                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi cap rate %</div>
+                      <input type="number" value={refi.refi_cap_rate||''} onChange={e=>setRefi('refi_cap_rate',e.target.value)} placeholder="6.0" step="0.25" style={reqInp(refi.refi_cap_rate)}/></div>
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Loan LTV %</div>
+                      <input type="number" value={refi.loan_pct||''} onChange={e=>setRefi('loan_pct',e.target.value)} placeholder="75" style={inp}/></div>
+                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Target DSCR</div>
+                      <input type="number" value={refi.target_dscr||''} onChange={e=>setRefi('target_dscr',e.target.value)} placeholder="1.25" step="0.05" style={inp}/></div>
+                  </div>
+                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi fees %</div>
+                    <input type="number" value={refi.refi_fees_pct||''} onChange={e=>setRefi('refi_fees_pct',e.target.value)} placeholder="1" step="0.25" style={inp}/></div>
                 </div>
-                <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Loan LTV %</div>
-                  <input type="number" value={refi.loan_pct||''} onChange={e=>setRefi('loan_pct',e.target.value)} placeholder="75" style={inp}/></div>
-                <KV label="Refi loan amount" value={fmtC(refiLoan||null)} bold/>
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Fixed interest rate %</div>
-                  <input type="number" value={refi.interest_rate||''} onChange={e=>setRefi('interest_rate',e.target.value)} placeholder="7.0" step="0.125" style={inp}/></div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Amortization (years)</div>
-                    <input type="number" value={refi.amortization||''} onChange={e=>setRefi('amortization',e.target.value)} placeholder="30" style={inp}/></div>
-                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Loan term (years)</div>
-                    <input type="number" value={refi.loan_term||''} onChange={e=>setRefi('loan_term',e.target.value)} placeholder="10" style={inp}/></div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Fixed interest rate %</div>
+                    <input type="number" value={refi.interest_rate||''} onChange={e=>setRefi('interest_rate',e.target.value)} placeholder="7.0" step="0.125" style={inp}/></div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Amortization (years)</div>
+                      <input type="number" value={refi.amortization||''} onChange={e=>setRefi('amortization',e.target.value)} placeholder="30" style={inp}/></div>
+                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Loan term (years)</div>
+                      <input type="number" value={refi.loan_term||''} onChange={e=>setRefi('loan_term',e.target.value)} placeholder="10" style={inp}/></div>
+                  </div>
+                  <KV label="Amortizing payment / month" value={fmtC(refiMoAmort||null)} />
+                  <KV label="Amortizing payment / year"  value={fmtC(refiMoAmort?refiMoAmort*12:null)} bold/>
+                  <KV label="I/O payment / month"        value={fmtC(refiMoIO||null)}/>
                 </div>
-                <KV label="Amortizing payment / month" value={fmtC(refiMoAmort||null)} />
-                <KV label="Amortizing payment / year"  value={fmtC(refiMoAmort?refiMoAmort*12:null)} bold/>
-                <KV label="I/O payment / month"        value={fmtC(refiMoIO||null)}/>
               </div>
-            </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:12, padding:'12px 14px', background:'#F8F7FF', borderRadius:8 }}>
+                {[
+                  { label:'Appraised value', val:fmtC(refiValue||null) },
+                  { label:`Refi loan (${refiBinding})`, val:fmtC(refiLoan||null) },
+                  { label:'Cash-out proceeds', val:fmtC(refiProceeds), col:refiProceeds>=0?'#27500A':'#791F1F' },
+                  { label:'Refi DSCR', val:refiDSCRval?fmtN(refiDSCRval):'—', col:dc(refiDSCRval) },
+                  { label:'NOI at refi', val:fmtC(refiNOI||null) },
+                ].map(({ label,val,col }) => (
+                  <div key={label} style={{ textAlign:'center' }}>
+                    <div style={{ fontSize:10, color:'#999', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:4 }}>{label}</div>
+                    <div style={{ fontSize:15, fontWeight:600, color:col||'#111' }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+            </>
         }
       </div>
 
