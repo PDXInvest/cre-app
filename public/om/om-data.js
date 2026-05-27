@@ -33,9 +33,12 @@
   console.log('OM debug — dash:', JSON.stringify(dash).slice(0, 200), 'incSrc:', dash.income_source)
 
   // ── Fetch marketing-selected comps for this proposal ────────────────
-  const { data: compSelections } = await sb.from('comp_selections')
+  const compSelectRes = await sb.from('comp_selections')
     .select('comp_id').eq('proposal_id', proposalId).eq('is_marketing', true)
-  const marketingCompIds = (compSelections || []).map(cs => cs.comp_id)
+  const marketingCompIds = (compSelectRes.data || []).map(cs => cs.comp_id)
+
+  console.log('comp_selections query result:', JSON.stringify(compSelectRes?.data?.slice(0, 3)))
+  console.log('comp_selections error:', compSelectRes?.error)
 
   let marketingComps = []
   if (marketingCompIds.length > 0) {
@@ -43,6 +46,8 @@
       .order('sale_date', { ascending: false, nullsFirst: false })
     marketingComps = (data || []).slice(0, 9)
   }
+  console.log('marketing comps found:', marketingComps?.length)
+  console.log('first marketing comp:', marketingComps.length > 0 ? JSON.stringify({ id: marketingComps[0].id, name: marketingComps[0].property_name, sale_price: marketingComps[0].sale_price }) : 'none')
 
   // Also fetch sub-market comps for market stats calculation
   let allComps = []
