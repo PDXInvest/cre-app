@@ -414,6 +414,7 @@ function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
   function setDateRange(v) { setLocalDateRange(v); if (onBenchDateRangeChange) onBenchDateRangeChange(v) }
   const [excluded, setExcluded] = useState(new Set())
   const [excludedMktg, setExcludedMktg] = useState(new Set())
+  const [mktgSavedIds, setMktgSavedIds] = useState(null)
 
   const defaultRange = unitRangeFromSubType(pr.property_sub_type, pr.total_units)
   const [minUnits, setMinUnits] = useState(defaultRange[0])
@@ -429,7 +430,13 @@ function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
   const [sortDir, setSortDir] = useState('desc')
   const [editComp, setEditComp] = useState(null)
 
-  useEffect(() => { fetchComps() }, [])
+  useEffect(() => { fetchComps(); loadMktgSelections() }, [])
+
+  async function loadMktgSelections() {
+    const { data } = await supabase.from('comp_selections')
+      .select('comp_id').eq('proposal_id', proposal.id).eq('is_marketing', true)
+    if (data) setMktgSavedIds(new Set(data.map(r => r.comp_id)))
+  }
 
   async function fetchComps() {
     setLoading(true)
@@ -495,6 +502,13 @@ function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
     return true
   })
 
+  // Apply saved marketing selections once comps and selections are both loaded
+  useEffect(() => {
+    if (mktgSavedIds && allComps.length > 0 && mktgSavedIds.size > 0) {
+      setExcludedMktg(new Set(baseFiltered.filter(c => !mktgSavedIds.has(c.id)).map(c => c.id)))
+    }
+  }, [mktgSavedIds, allComps.length])
+
   const activeComps = baseFiltered.filter(c => !excluded.has(c.id))
   const marketingComps = baseFiltered.filter(c => !excludedMktg.has(c.id))
 
@@ -502,15 +516,32 @@ function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
     setExcluded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   }
   function toggleExcludeMktg(id) {
+    const wasExcluded = excludedMktg.has(id)
     setExcludedMktg(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+    if (wasExcluded) {
+      supabase.from('comp_selections').delete().eq('proposal_id', proposal.id).eq('comp_id', id)
+        .then(() => supabase.from('comp_selections').insert({ proposal_id: proposal.id, comp_id: id, is_marketing: true }))
+    } else {
+      supabase.from('comp_selections').delete().eq('proposal_id', proposal.id).eq('comp_id', id)
+    }
   }
   function toggleAll() {
     if (excluded.size === 0) setExcluded(new Set(baseFiltered.map(c => c.id)))
     else setExcluded(new Set())
   }
   function toggleAllMktg() {
-    if (excludedMktg.size === 0) setExcludedMktg(new Set(baseFiltered.map(c => c.id)))
-    else setExcludedMktg(new Set())
+    const allExcluded = excludedMktg.size === 0
+    if (allExcluded) {
+      setExcludedMktg(new Set(baseFiltered.map(c => c.id)))
+      supabase.from('comp_selections').delete().eq('proposal_id', proposal.id)
+    } else {
+      setExcludedMktg(new Set())
+      supabase.from('comp_selections').delete().eq('proposal_id', proposal.id)
+        .then(() => {
+          const rows = baseFiltered.map(c => ({ proposal_id: proposal.id, comp_id: c.id, is_marketing: true }))
+          if (rows.length) supabase.from('comp_selections').insert(rows)
+        })
+    }
   }
 
   const EDIT_FIELDS = [

@@ -30,15 +30,11 @@
   const dash = dashRes.data?.data || {}
   const discovery = proposal.discovery_notes || {}
 
-  console.log('OM debug — dash:', JSON.stringify(dash).slice(0, 200), 'incSrc:', dash.income_source)
 
   // ── Fetch marketing-selected comps for this proposal ────────────────
   const compSelectRes = await sb.from('comp_selections')
     .select('comp_id').eq('proposal_id', proposalId).eq('is_marketing', true)
   const marketingCompIds = (compSelectRes.data || []).map(cs => cs.comp_id)
-
-  console.log('comp_selections query result:', JSON.stringify(compSelectRes?.data?.slice(0, 3)))
-  console.log('comp_selections error:', compSelectRes?.error)
 
   let marketingComps = []
   if (marketingCompIds.length > 0) {
@@ -46,8 +42,6 @@
       .order('sale_date', { ascending: false, nullsFirst: false })
     marketingComps = (data || []).slice(0, 9)
   }
-  console.log('marketing comps found:', marketingComps?.length)
-  console.log('first marketing comp:', marketingComps.length > 0 ? JSON.stringify({ id: marketingComps[0].id, name: marketingComps[0].property_name, sale_price: marketingComps[0].sale_price }) : 'none')
 
   // Also fetch sub-market comps for market stats calculation
   let allComps = []
@@ -113,7 +107,6 @@
   const src = allSrcs[incSrc] || allSrcs['Stated']
   const srcNOI = src.noi, srcGOI = src.goi, srcExp = src.exp
 
-  console.log('OM debug — incSrc:', incSrc, 'srcNOI:', srcNOI, 'srcGOI:', srcGOI, 't12NOI:', t12NOI, 'statedNOI:', statedNOI)
 
   const currentCap = askPrice && srcNOI ? srcNOI / askPrice : 0
   const pfCap = askPrice && pfNOI ? pfNOI / askPrice : 0
