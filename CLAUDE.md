@@ -40,7 +40,7 @@ Comps  (independent market database — shared across all proposals, linkable to
 
 ## Current Build Status
 
-### Completed (Phases A + B)
+### Completed (Phases A + B + R)
 - Full React + Vite + Supabase + Vercel stack live
 - `operatingModel.js` financial engine
 - Oregon rent cap logic, stabilization engine, Investor Returns
@@ -48,9 +48,13 @@ Comps  (independent market database — shared across all proposals, linkable to
 - Rent Roll tab with per-unit editing
 - Financials tab: Income Statement, T-12 Monthly, Growth Assumptions, Operating Model sub-tab
 - Investor Returns wired to projected NOI
-
-### In Progress — Restructuring (Phase R)
-Restructuring from proposal-first to property-first. See full spec below.
+- Property-first CRM model with full restructuring complete (Phase R1–R4)
+- Properties page: list view, property records with Overview/Market Metrics/Sale History/Photos/Proposals tabs
+- ProposalDetail extracted as standalone routed page
+- URL-based routing: `/properties/:id`, `/proposals/:id`
+- CSV import moved to Properties page
+- Auto-match comps to properties on import via `sf_property_id`
+- Auto-filter comp analysis when launching proposal from property
 
 ### Not Yet Started
 - Phase C: Refi cash flows wired into IRR
@@ -59,109 +63,51 @@ Restructuring from proposal-first to property-first. See full spec below.
 
 ---
 
-## Restructuring Spec (Phase R) — Build This Next
+## Restructuring (Phase R) — Completed
 
-### What's changing
-- Properties become first-class page with full CRM-style record
-- Proposals become child records hanging off properties
-- New navigation: Properties / Proposals / Comp Database
+Property-first CRM model restructuring, completed in four phases:
 
-### Phase R1 — Supabase changes (do first, no code)
-1. Add `property_id` nullable foreign key to `comps` table
-2. Enable Supabase Storage, create `property-photos` bucket
-3. Add `photos` text array column to `properties` table
+- **R1**: Supabase schema — `property_id` FK on comps, `property-photos` storage bucket, `photos` array on properties
+- **R2**: Properties page — list view with search, property records with 5 tabs (Overview, Market Metrics, Sale History, Photos, Proposals), edit modal, photo upload
+- **R3**: File extraction — ProposalDetail.jsx extracted from Proposals.jsx, CSV import moved to Properties, URL-based routing (`/properties/:id`, `/proposals/:id`), "New proposal" button on property records with pre-population
+- **R4**: Intelligence layer — auto-match comps to properties on import via `sf_property_id`, comp analysis auto-filters from property attributes
 
-### Phase R2 — New Properties page
-**New file:** `src/pages/Properties.jsx`
-
-List view (`/properties`):
-- Searchable by address, owner name, owner LLC
-- Columns: address, units, type, year built, last sale, active proposal stage
-- "Import properties" CSV button (moved from Proposals.jsx)
-- "+ New property" button for manual entry
-- Click a row → full-page property record
-
-Property record (`/properties/:id`):
-- Breadcrumb: Properties / [address]
-- Header: address, subtitle line, Edit button, New proposal button
-- Five tabs: Overview, Market metrics, Sale history, Photos, Proposals
-
-**Overview tab:**
-- Property info card: type, units, year built, building SF, class, zoning, land area, tax ID
-- Ownership card: owner LLC, contact name
-- Sale history card: auto-queried from comps table where address matches. Badge: "auto-matched from comps"
-- Recent proposals card: last 2-3 proposals with stage pill, clickable
-
-**Market metrics tab:**
-- Scope toggle pills: Market / County / Sub-market / Zip code (default: Sub-market)
-- Era toggle checkbox: "Same era only" (default: checked)
-- Comp count line: "Based on N sold comps · last 6 mo vs prior 6 mo"
-- Thin-data warning if fewer than 5 comps at selected scope
-- Four metric cards: Price per unit, Cap rate, GRM, Sales volume
-- Each card: 6-month median value + YOY delta with directional arrow (green up, red down)
-- YOY = last 6 months vs same 6-month window one year prior
-- All calculated live from comps table
-
-**Sale history tab:**
-- Full table of all comp records matching this property address
-- Columns: date, sale price, $/unit, $/SF, cap rate, GRM
-
-**Photos tab:**
-- Grid of uploaded photos
-- Upload → Supabase Storage → save URL to properties.photos array
-
-**Proposals tab:**
-- All proposals for this property, columns: name, created date, asking price, stage
-- Click → opens proposal detail
-
-### Phase R3 — Refactor existing files
-
-`Proposals.jsx` — remove:
-- Property CSV import UI (moves to Properties.jsx)
-- ProposalDetail component (extract to ProposalDetail.jsx)
-
-`Proposals.jsx` — keep:
-- Pipeline list view
-- New proposal creation flow (update: pre-populate property when launched from property record)
-
-New file: `src/pages/ProposalDetail.jsx`
-- Pure extraction from current Proposals.jsx — no logic changes
-
-`App.jsx` — updated routes:
+### Routes
 ```
-/properties       → Properties list
-/properties/:id   → Property record
+/                 → redirects to /proposals
 /proposals        → Proposals pipeline
 /proposals/:id    → Proposal detail
+/properties       → Properties list
+/properties/:id   → Property record
 /comps            → Comp database
 ```
-
-### Phase R4 — Intelligence layer (do last)
-- Auto-match comps to properties on import: when comp address matches a properties record, write property_id FK
-- Auto-filter comps when launching proposal from property: pre-set sub-market, era, unit range
 
 ---
 
 ## Key Files
-- `src/pages/Properties.jsx` — NEW: property CRM list + full record
-- `src/pages/Proposals.jsx` — pipeline list + new proposal flow (being refactored)
-- `src/pages/ProposalDetail.jsx` — NEW: extracted from Proposals.jsx
-- `src/pages/PropertyDashboard.jsx` — deal assumptions + investor returns (unchanged)
-- `src/pages/Financials.jsx` — financials tab (unchanged)
-- `src/pages/RentRoll.jsx` — rent roll tab (unchanged)
-- `src/pages/CompDatabase.jsx` — comp database (unchanged)
-- `src/utils/operatingModel.js` — financial engine (unchanged)
+- `src/App.jsx` — routing and nav (all routes defined here)
+- `src/pages/Properties.jsx` — property CRM list + full record (5 tabs) + CSV import
+- `src/pages/Proposals.jsx` — proposal pipeline list + new proposal flow
+- `src/pages/ProposalDetail.jsx` — proposal detail (overview, due diligence, comp analysis, rent roll, financials tabs)
+- `src/pages/PropertyDashboard.jsx` — deal assumptions + investor returns
+- `src/pages/Financials.jsx` — financials tab (income statement, T-12, growth assumptions, operating model)
+- `src/pages/RentRoll.jsx` — rent roll tab with per-unit editing
+- `src/pages/CompDatabase.jsx` — comp database with CSV import + auto-match to properties
+- `src/utils/operatingModel.js` — financial engine
 - `src/supabase.js` — Supabase client
-- `src/App.jsx` — routing and nav
 
 ## Supabase Tables
-- `properties` — property records (imported via Salesforce CSV)
-- `proposals` — one per deal, child of property
-- `comps` — shared market comp database (add property_id FK)
+- `properties` — property records (imported via Salesforce CSV), includes `photos` text array
+- `proposals` — one per deal, child of property via `property_id`
+- `comps` — shared market comp database, linked to properties via `property_id` FK (auto-matched on import)
 - `comp_selections` — per-proposal comp checkbox state
 - `monthly_financials` — T-12 monthly income/expense data
 - `units` — rent roll units (deleted and reinserted on every save)
 - `app_settings` — app-level Growth Assumptions defaults (21 fields)
+- `proposal_dashboard` — per-proposal dashboard data (stated income, acquisition, investor returns)
+
+### Supabase Storage
+- `property-photos` — public bucket for property photos
 
 ---
 
