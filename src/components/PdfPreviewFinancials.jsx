@@ -1,17 +1,24 @@
 import { useState } from 'react'
-import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '../utils/pdfExtract'
+import { REVENUE_ITEMS, OTHER_INCOME_GROUPS, EXPENSE_GROUPS, ALL_INCOME_ITEMS, ALL_EXPENSE_ITEMS } from '../utils/pdfExtract'
 
 const fC = v => v != null ? '$' + Math.round(Number(v)).toLocaleString() : '—'
 
 const CategoryDropdown = ({ value, onChange, style }) => (
   <select value={value} onChange={e => onChange(e.target.value)} style={style}>
     <option value="">— Skip —</option>
-    <optgroup label="Income">
-      {INCOME_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+    <optgroup label="Rental Revenue">
+      {REVENUE_ITEMS.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
     </optgroup>
-    <optgroup label="Expenses">
-      {EXPENSE_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
-    </optgroup>
+    {OTHER_INCOME_GROUPS.map(g => (
+      <optgroup key={g.group} label={g.group}>
+        {g.items.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+      </optgroup>
+    ))}
+    {EXPENSE_GROUPS.map(g => (
+      <optgroup key={g.group} label={g.group}>
+        {g.items.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+      </optgroup>
+    ))}
   </select>
 )
 
@@ -26,10 +33,13 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
     Object.keys(rawPeriods[pk] || {}).forEach(code => allCodes.add(code))
   })
 
+  const incomeCodeSet = new Set(ALL_INCOME_ITEMS.map(c => c.code))
+  const expenseCodeSet = new Set(ALL_EXPENSE_ITEMS.map(c => c.code))
+
   const initialRows = []
   allCodes.forEach(code => {
-    const incCat = INCOME_CATEGORIES.find(c => c.code === code)
-    const expCat = EXPENSE_CATEGORIES.find(c => c.code === code)
+    const isIncome = incomeCodeSet.has(code)
+    const isExpense = expenseCodeSet.has(code)
     const mappedEntry = mappedList.find(m => m.code === code)
     const pdfLabel = mappedEntry?.pdf_label || code
     const isLow = mappedEntry?.confidence === 'low'
@@ -37,7 +47,7 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
     periodKeys.forEach(pk => { values[pk] = rawPeriods[pk]?.[code] || 0 })
     const total = Object.values(values).reduce((s, v) => s + (Number(v) || 0), 0)
     if (total === 0) return
-    const section = incCat ? 'income' : expCat ? 'expense' : 'income'
+    const section = isIncome ? 'income' : isExpense ? 'expense' : 'income'
     initialRows.push({ _key: code, pdfLabel, assignedCode: code, values, total, isLow, section })
   })
 
@@ -89,11 +99,11 @@ export default function PdfPreviewFinancials({ type, data, onConfirm, onCancel }
 
   const incomeRows = rows.filter(r => {
     if (!r.assignedCode) return r.section === 'income' || r.section === 'unmapped'
-    return !!INCOME_CATEGORIES.find(c => c.code === r.assignedCode)
+    return incomeCodeSet.has(r.assignedCode)
   })
   const expenseRows = rows.filter(r => {
     if (!r.assignedCode) return r.section === 'expense'
-    return !!EXPENSE_CATEGORIES.find(c => c.code === r.assignedCode)
+    return expenseCodeSet.has(r.assignedCode)
   })
   const unmappedRows = rows.filter(r => !r.assignedCode && r.section === 'unmapped')
   const mappedCount = rows.filter(r => r.assignedCode).length

@@ -1,49 +1,121 @@
-export const INCOME_CATEGORIES = [
-  { code: 'collected_rent', label: 'Collected Rent' },
-  { code: 'loss_to_lease', label: 'Loss to Lease' },
-  { code: 'vacancy_credit_loss', label: 'Vacancy & Credit Loss' },
+export const REVENUE_ITEMS = [
+  { code: 'market_rent', label: 'Market Rent' },
+  { code: 'loss_to_lease', label: 'Loss-to-Lease' },
+  { code: 'vacancy_credit_loss', label: 'Actual Vacancy & Credit Loss' },
   { code: 'concessions', label: 'Concessions' },
-  { code: 'rubs_electric', label: 'Electricity Reimb' },
-  { code: 'rubs_water_sewer', label: 'Water/Sewer Reimb' },
-  { code: 'rubs_gas', label: 'Gas Reimb' },
-  { code: 'rubs_trash', label: 'Trash Reimb' },
-  { code: 'rubs_combined', label: 'Combined RUBS' },
-  { code: 'park_parking', label: 'Parking Income' },
-  { code: 'storage_income', label: 'Storage Income' },
-  { code: 'oi_application_fees', label: 'Application Fees' },
-  { code: 'oi_insurance_services', label: 'Insurance Services' },
-  { code: 'oi_late_charges', label: 'Late Charges' },
-  { code: 'oi_laundry', label: 'Laundry' },
-  { code: 'oi_misc', label: 'Misc Income' },
+  { code: 'collected_rent', label: 'Collected Rent' },
 ]
 
-export const EXPENSE_CATEGORIES = [
-  { code: 'admin_licenses', label: 'Admin / Licenses / Fees' },
-  { code: 'ptax_property', label: 'Property Tax' },
-  { code: 'ins_property', label: 'Property Insurance' },
-  { code: 'uti_electric', label: 'Electric' },
-  { code: 'uti_water_sewer', label: 'Water/Sewage' },
-  { code: 'uti_gas', label: 'Gas' },
-  { code: 'uti_trash', label: 'Trash/Recycling' },
-  { code: 'uti_combined', label: 'Combined Utilities' },
-  { code: 'pm_mgmt_fees', label: 'Management Fees' },
-  { code: 'pm_lease_up', label: 'Lease-Up Fees' },
-  { code: 'rm_general_maint', label: 'General Maintenance' },
-  { code: 'rm_general_repair', label: 'General Repair' },
-  { code: 'rm_cleaning', label: 'Cleaning' },
-  { code: 'rm_supplies', label: 'Supplies' },
-  { code: 'rm_plumbing', label: 'Plumbing Repair' },
-  { code: 'rm_appliance', label: 'Appliance Repair' },
-  { code: 'rm_labor', label: 'Labor Expense' },
-  { code: 'land_landscaping', label: 'Landscaping' },
-  { code: 'turn_misc', label: 'Turnover / Make-Ready' },
-  { code: 'capres_reserves', label: 'Capital Reserves' },
-  { code: 'mark_advertising', label: 'Advertising' },
-  { code: 'pay_payroll', label: 'Payroll' },
-  { code: 'sec_security', label: 'Security' },
+export const OTHER_INCOME_GROUPS = [
+  { group: 'RUBS', items: [
+    { code: 'rubs_electric', label: 'Electricity Reimb' },
+    { code: 'rubs_water_sewer', label: 'Water/Sewer Reimbursement' },
+    { code: 'rubs_gas', label: 'Gas Reimbursement' },
+    { code: 'rubs_trash', label: 'Trash Reimbursement' },
+    { code: 'rubs_combined', label: 'Utility Recovery (RUBS) - Combined' },
+  ]},
+  { group: 'Parking', items: [
+    { code: 'park_parking', label: 'Parking/Garage' },
+  ]},
+  { group: 'Storage', items: [
+    { code: 'storage_income', label: 'Storage Income' },
+  ]},
+  { group: 'Other Income', items: [
+    { code: 'oi_tenant_chargeback', label: 'Tenant Chargeback' },
+    { code: 'oi_application_fees', label: 'Application Fees' },
+    { code: 'oi_insurance_services', label: 'Insurance Services' },
+    { code: 'oi_deposit_forfeit', label: 'Deposit Forfeit' },
+    { code: 'oi_interest', label: 'Interest Income' },
+    { code: 'oi_late_charges', label: 'Late Charges' },
+    { code: 'oi_nsf_fees', label: 'NSF Fees' },
+    { code: 'oi_laundry', label: 'Laundry' },
+    { code: 'oi_pet_rent', label: 'Other Income (Pet Rent)' },
+    { code: 'oi_misc', label: 'Misc Income' },
+  ]},
 ]
 
-export const ALL_CATEGORIES = [...INCOME_CATEGORIES, ...EXPENSE_CATEGORIES]
+export const EXPENSE_GROUPS = [
+  { group: 'Administrative', items: [
+    { code: 'admin_licenses', label: 'Licenses/Permits/Fees' },
+    { code: 'admin_collection', label: 'Collection Expense' },
+    { code: 'admin_dues', label: 'Dues & Subscriptions' },
+    { code: 'admin_postage', label: 'Postage' },
+    { code: 'admin_bank', label: 'Bank Charges' },
+    { code: 'admin_onboarding', label: 'Onboarding' },
+    { code: 'admin_supplies', label: 'Office Supplies' },
+  ]},
+  { group: 'Property Taxes', items: [
+    { code: 'ptax_property', label: 'Property Tax' },
+  ]},
+  { group: 'Other Taxes / Fees', items: [
+    { code: 'otax_state_local', label: 'State/Local Taxes' },
+    { code: 'otax_other', label: 'Taxes Other' },
+  ]},
+  { group: 'Property Insurance', items: [
+    { code: 'ins_property', label: 'Property Insurance' },
+  ]},
+  { group: 'Utilities', items: [
+    { code: 'uti_electric', label: 'Electric' },
+    { code: 'uti_electric_vacant', label: 'Electric-Vacant' },
+    { code: 'uti_water_sewer', label: 'Water/Sewage' },
+    { code: 'uti_gas', label: 'Gas' },
+    { code: 'uti_trash', label: 'Trash/Recycling' },
+    { code: 'uti_combined', label: 'Utilities (Combined)' },
+  ]},
+  { group: 'Property Management', items: [
+    { code: 'pm_mgmt_fees', label: 'Management Fees' },
+    { code: 'pm_lease_up', label: 'Management Lease Up' },
+    { code: 'pm_misc_fees', label: 'Misc Fees / Software' },
+  ]},
+  { group: 'Repairs & Maintenance', items: [
+    { code: 'rm_general_maint', label: 'General Maintenance' },
+    { code: 'rm_general_repair', label: 'General Repair' },
+    { code: 'rm_cleaning', label: 'Cleaning' },
+    { code: 'rm_supplies', label: 'Supplies' },
+    { code: 'rm_painting', label: 'Painting' },
+    { code: 'rm_hvac', label: 'HVAC' },
+    { code: 'rm_plumbing', label: 'Plumbing Repair' },
+    { code: 'rm_appliance', label: 'Appliance Repair' },
+    { code: 'rm_labor', label: 'Labor Expense' },
+    { code: 'rm_pest', label: 'Pest Control' },
+    { code: 'rm_misc', label: 'Misc' },
+  ]},
+  { group: 'Landscaping', items: [
+    { code: 'land_landscaping', label: 'Landscaping' },
+  ]},
+  { group: 'Turnover', items: [
+    { code: 'turn_misc', label: 'Misc Turnover' },
+  ]},
+  { group: 'Capital Reserves', items: [
+    { code: 'capres_reserves', label: 'Capital Reserves' },
+  ]},
+  { group: 'Security', items: [
+    { code: 'sec_security', label: 'Security' },
+  ]},
+  { group: 'Contract Services', items: [
+    { code: 'conserv_services', label: 'Contract Services' },
+  ]},
+  { group: 'Advertising & Marketing', items: [
+    { code: 'mark_leasing', label: 'Leasing Commissions' },
+    { code: 'mark_advertising', label: 'Advertising' },
+    { code: 'mark_internet', label: 'Internet Advertising' },
+  ]},
+  { group: 'Payroll', items: [
+    { code: 'pay_payroll', label: 'Payroll' },
+  ]},
+  { group: 'Misc', items: [
+    { code: 'misc_expenses', label: 'Misc Expenses' },
+  ]},
+]
+
+export const ALL_INCOME_ITEMS = [
+  ...REVENUE_ITEMS,
+  ...OTHER_INCOME_GROUPS.flatMap(g => g.items),
+]
+
+export const ALL_EXPENSE_ITEMS = EXPENSE_GROUPS.flatMap(g => g.items)
+
+export const ALL_CATEGORIES = [...ALL_INCOME_ITEMS, ...ALL_EXPENSE_ITEMS]
 
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {
