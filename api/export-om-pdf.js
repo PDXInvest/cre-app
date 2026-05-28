@@ -17,8 +17,6 @@ export default async function handler(req, res) {
   const vpW = isLandscape ? 1056 : 816
   const vpH = isLandscape ? 816 : 1056
   const scale = 0.75
-  const pdfW = isLandscape ? '11in' : '8.5in'
-  const pdfH = isLandscape ? '8.5in' : '11in'
   const proto = req.headers['x-forwarded-proto'] || 'https'
   const host = req.headers.host
   const omUrl = `${proto}://${host}/om?proposal=${proposalId}&view=client`
@@ -44,23 +42,19 @@ export default async function handler(req, res) {
       await page.addStyleTag({ content: ${JSON.stringify(styleContent)} });
       const dims = await page.evaluate(() => {
         const page = document.querySelector('.om-page');
-        const shell = document.querySelector('.om-shell');
         const stage = document.querySelector('.om-stage');
-        const sidebar = document.querySelector('.om-sidebar');
         return {
+          viewportW: window.innerWidth,
+          viewportH: window.innerHeight,
           pageW: page && page.offsetWidth,
           pageH: page && page.offsetHeight,
-          shellW: shell && shell.offsetWidth,
           stageW: stage && stage.offsetWidth,
-          sidebarW: sidebar && sidebar.offsetWidth,
-          sidebarDisplay: sidebar ? window.getComputedStyle(sidebar).display : 'not found',
-          bodyW: document.body.offsetWidth,
-          viewportW: window.innerWidth
+          bodyW: document.body.offsetWidth
         };
       });
       const pdf = await page.pdf({
-        width: ${JSON.stringify(pdfW)},
-        height: ${JSON.stringify(pdfH)},
+        format: 'Letter',
+        landscape: ${isLandscape},
         printBackground: true,
         scale: ${scale},
         margin: { top: '0', bottom: '0', left: '0', right: '0' },
