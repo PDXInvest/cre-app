@@ -26,7 +26,7 @@ export default async function handler(req, res) {
   const styleContent = `
     .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
     .om-shell { display: block !important; grid-template-columns: 1fr !important; }
-    .om-stage { display: block !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
+    .om-stage { display: block !important; padding: 0 !important; margin: 0 !important; background: transparent !important; }
   `
 
   // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
