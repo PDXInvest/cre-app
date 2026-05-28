@@ -27,8 +27,9 @@ export default async function handler(req, res) {
 
   // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
   // page lays out at the correct width from the start.
-  // deviceScaleFactor:1 — 2x DPI ballooned the PDF to ~51MB. Return the PDF
-  // base64-encoded so the response is a predictable JSON shape.
+  // The /function runtime is browser-like — no Node Buffer. Return a Response
+  // object with the raw PDF bytes; Browserless streams it back as binary.
+  // deviceScaleFactor:1 — 2x DPI ballooned the PDF to ~51MB.
   const fnCode = `
     export default async function ({ page }) {
       await page.setViewport({ width: ${vpW}, height: ${vpH}, deviceScaleFactor: 1 });
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
         margin: { top: 0, bottom: 0, left: 0, right: 0 },
         preferCSSPageSize: false
       });
-      return { type: 'application/json', data: { pdf: Buffer.from(pdf).toString('base64') } };
+      return new Response(pdf, { headers: { 'Content-Type': 'application/pdf' } });
     }
   `
 
@@ -61,21 +62,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Browserless failed: ' + text.slice(0, 200) })
     }
 
-    // The /function endpoint may return JSON (base64 in a data field) or raw
-    // binary depending on the return shape. Handle both.
-    const contentType = bl.headers.get('content-type') || ''
-    let pdf
-    if (contentType.includes('application/json')) {
-      const json = await bl.json()
-      const b64 = json?.data?.pdf || json?.pdf || (typeof json?.data === 'string' ? json.data : null)
-      if (!b64) {
-        console.error('Browserless JSON missing pdf data:', JSON.stringify(json).slice(0, 300))
-        return res.status(502).json({ error: 'Browserless returned no PDF data' })
-      }
-      pdf = Buffer.from(b64, 'base64')
-    } else {
-      pdf = Buffer.from(await bl.arrayBuffer())
-    }
+    const pdf = Buffer.from(await bl.arrayBuffer())
 
     if (!pdf.length || pdf.slice(0, 4).toString() !== '%PDF') {
       console.error('Invalid PDF output, first bytes:', pdf.slice(0, 16).toString())
