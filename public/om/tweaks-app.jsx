@@ -13,7 +13,7 @@
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#A51123",
   "headingFont": "DM Serif Display",
-  "orientation": "landscape",
+  "orientation": "portrait",
   "postcardSize": "standard"
 }/*EDITMODE-END*/;
 
@@ -48,7 +48,10 @@ function applyTweaks(t) {
    used by the print stylesheet so Save-as-PDF respects the choice. */
 function applyOrientation(orient) {
   const shell = document.getElementById('omShell');
-  if (shell) shell.classList.toggle('is-portrait', orient === 'portrait');
+  if (shell) {
+    shell.classList.toggle('is-portrait', orient === 'portrait');
+    shell.classList.toggle('is-landscape', orient === 'landscape');
+  }
 
   let style = document.getElementById('om-print-orientation');
   if (!style) {
@@ -57,9 +60,9 @@ function applyOrientation(orient) {
     document.head.appendChild(style);
   }
   if (orient === 'portrait') {
-    style.textContent = `@media print { @page { size: 8.5in 11in; margin: 0; } .om-page { width: 8.5in !important; min-height: 11in !important; } }`;
+    style.textContent = `@media print { @page { size: 8.5in 11in; margin: 0; } .om-page { width: 8.5in !important; height: 11in !important; } }`;
   } else {
-    style.textContent = `@media print { @page { size: 11in 8.5in; margin: 0; } .om-page { width: 11in !important; min-height: 8.5in !important; } }`;
+    style.textContent = `@media print { @page { size: 11in 8.5in; margin: 0; } .om-page { width: 11in !important; height: 8.5in !important; } }`;
   }
 }
 

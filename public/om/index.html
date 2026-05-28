@@ -28,10 +28,9 @@
     --paper:      #ffffff;
     --accent:     var(--burgundy);
 
-    /* Default: Letter LANDSCAPE @ 96dpi. The `is-portrait` modifier on
-       .om-shell swaps these back to portrait. */
-    --page-w: 1056px;
-    --page-h: 816px;
+    /* Default: Letter PORTRAIT @ 96dpi (8.5in × 11in = 816 × 1056). */
+    --page-w: 816px;
+    --page-h: 1056px;
     --page-pad: 64px;
 
     --sans: "Montserrat", "Futura", "Helvetica Neue", system-ui, sans-serif;
@@ -574,15 +573,21 @@
   }
 
   /* ============================================================
-     ORIENTATION — Letter Landscape is the default.
-     `.om-shell.is-portrait` flips dimensions back to portrait and
-     restores the original per-page layouts. Layouts that benefit
-     from a wider/shorter format get landscape-specific tweaks
-     scoped to `.om-shell:not(.is-portrait)`.
+     ORIENTATION — Letter Portrait is the default.
+     `.om-shell.is-landscape` flips dimensions to landscape.
+     Layouts that benefit from a wider/shorter format get
+     landscape-specific tweaks scoped to `.om-shell.is-landscape`.
+     For backward compatibility, `.om-shell:not(.is-portrait)` rules
+     still apply to landscape selector (treat absence of is-portrait
+     as landscape only when is-landscape is set).
      ============================================================ */
   .om-shell.is-portrait {
     --page-w: 816px;
     --page-h: 1056px;
+  }
+  .om-shell.is-landscape {
+    --page-w: 1056px;
+    --page-h: 816px;
   }
 
   /* Snapshot — in landscape, split photo|data side-by-side instead
@@ -3312,7 +3317,7 @@
      <style> below) to match the current orientation toggle.
      ============================================================ */
   @media print {
-    @page { size: 11in 8.5in; margin: 0; }
+    @page { size: 8.5in 11in; margin: 0; }
     html, body { margin: 0; padding: 0; background: #fff; }
     .om-sidebar, .nav-toggle, #tweaks-root, .om-collapse-strip { display: none !important; }
     .om-shell { display: block; }
@@ -3321,13 +3326,12 @@
       box-shadow: none !important;
       page-break-after: always;
       break-after: page;
-      width: 11in !important;
-      min-height: 8.5in !important;
-      height: auto !important;
+      width: 8.5in !important;
+      height: 11in !important;
       margin: 0 !important;
       padding: var(--page-pad) !important;
       box-sizing: border-box;
-      overflow: visible !important;
+      overflow: hidden !important;
       transform-origin: top left;
     }
     .om-page.cover { padding: 0 !important; }
@@ -3340,8 +3344,8 @@
 <!-- Rewritten by tweaks-app.jsx whenever orientation changes -->
 <style id="om-print-orientation">
   @media print {
-    @page { size: 11in 8.5in; margin: 0; }
-    .om-page { width: 11in !important; min-height: 8.5in !important; }
+    @page { size: 8.5in 11in; margin: 0; }
+    .om-page { width: 8.5in !important; height: 11in !important; }
   }
 </style>
 </head>
@@ -5779,15 +5783,17 @@
 
 <style id="om-print-final">
   @media print {
-    @page { margin: 0 !important; }
+    @page { size: 8.5in 11in !important; margin: 0 !important; }
     html, body { margin: 0 !important; padding: 0 !important; }
     .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
     .om-shell { display: block !important; grid-template-columns: 1fr !important; }
     .om-stage { padding: 0 !important; display: block !important; }
     .om-page {
+      width: 8.5in !important;
+      height: 11in !important;
       margin: 0 !important;
       padding: var(--page-pad) !important;
-      overflow: visible !important;
+      overflow: hidden !important;
       box-sizing: border-box !important;
       page-break-after: always !important;
       break-after: page !important;
