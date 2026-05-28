@@ -1,9 +1,4 @@
-import chromium from '@sparticuz/chromium-min'
-import puppeteer from 'puppeteer-core'
-
 export const config = { maxDuration: 60 }
-
-const CHROMIUM_PACK = 'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -11,41 +6,44 @@ export default async function handler(req, res) {
   const { proposalId, orientation } = req.body
   if (!proposalId) return res.status(400).json({ error: 'proposalId required' })
 
+  const token = process.env.BROWSERLESS_TOKEN
+  if (!token) return res.status(500).json({ error: 'BROWSERLESS_TOKEN not configured' })
+
   const isLandscape = orientation !== 'portrait'
-  let browser
+  const proto = req.headers['x-forwarded-proto'] || 'https'
+  const host = req.headers.host
+  const omUrl = `${proto}://${host}/om?proposal=${proposalId}&view=client`
+
   try {
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: {
-        width: isLandscape ? 1056 : 816,
-        height: isLandscape ? 816 : 1056,
-        deviceScaleFactor: 2,
-      },
-      executablePath: await chromium.executablePath(CHROMIUM_PACK),
-      headless: chromium.headless,
+    const bl = await fetch(`https://production-sfo.browserless.io/pdf?token=${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: omUrl,
+        gotoOptions: { waitUntil: 'networkidle0', timeout: 45000 },
+        // Wait until the OM data layer signals it has populated the page
+        waitForFunction: {
+          fn: 'function(){return window.__omDataReady===true}',
+          timeout: 30000,
+        },
+        options: {
+          format: 'Letter',
+          landscape: isLandscape,
+          printBackground: true,
+          margin: { top: '0', bottom: '0', left: '0', right: '0' },
+          preferCSSPageSize: false,
+        },
+      }),
     })
 
-    const page = await browser.newPage()
+    if (!bl.ok) {
+      const text = await bl.text().catch(() => '')
+      console.error('Browserless error', bl.status, text)
+      return res.status(502).json({ error: `Browserless failed (${bl.status})` })
+    }
 
-    const proto = req.headers['x-forwarded-proto'] || 'https'
-    const host = req.headers.host
-    const url = `${proto}://${host}/om?proposal=${proposalId}&view=client`
-
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 50000 })
-
-    // Wait for OM data layer to finish populating fields
-    await page.waitForFunction(() => window.__omDataReady === true, { timeout: 30000 })
-
-    // Extra settle time for fonts + image-slot custom elements to render
-    await new Promise(r => setTimeout(r, 1500))
-
-    const pdf = await page.pdf({
-      format: 'Letter',
-      landscape: isLandscape,
-      printBackground: true,
-      margin: { top: 0, bottom: 0, left: 0, right: 0 },
-      preferCSSPageSize: false,
-    })
+    const arrayBuffer = await bl.arrayBuffer()
+    const pdf = Buffer.from(arrayBuffer)
 
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="OM-${proposalId}.pdf"`)
@@ -54,7 +52,5 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error('PDF export error:', err)
     res.status(500).json({ error: err.message || 'PDF generation failed' })
-  } finally {
-    if (browser) try { await browser.close() } catch {}
   }
 }
