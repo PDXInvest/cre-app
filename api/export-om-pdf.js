@@ -62,7 +62,13 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Browserless failed: ' + text.slice(0, 200) })
     }
 
-    const pdf = Buffer.from(await bl.arrayBuffer())
+    const arrayBuf = await bl.arrayBuffer()
+    const pdf = Buffer.from(arrayBuf)
+    console.log('Response status:', bl.status)
+    console.log('Response content-type:', bl.headers.get('content-type'))
+    console.log('Buffer length:', pdf.length)
+    console.log('First 100 bytes as string:', pdf.slice(0, 100).toString('utf8'))
+    console.log('First 4 bytes hex:', pdf.slice(0, 4).toString('hex'))
 
     if (!pdf.length || pdf.slice(0, 4).toString() !== '%PDF') {
       console.error('Invalid PDF output, first bytes:', pdf.slice(0, 16).toString())
