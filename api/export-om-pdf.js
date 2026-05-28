@@ -24,22 +24,21 @@ export default async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: omUrl,
-        // Browserless v2 uses `setViewport` (not `viewport`) — matching the
-        // viewport to the page width is what makes content fill the page.
-        setViewport: { width: vpW, height: vpH, deviceScaleFactor: 2 },
         gotoOptions: { waitUntil: 'networkidle0', timeout: 45000 },
         // Wait until the OM data layer signals it has populated the page
         waitForFunction: {
           fn: 'function(){return window.__omDataReady===true}',
           timeout: 30000,
         },
-        // Defensive layout reset — collapse the sidebar grid column so the
-        // page stack fills the full page width regardless of media mode.
+        // Browserless v2 /pdf has no viewport field — force the layout width
+        // via injected CSS so content fills the full PDF page regardless of
+        // the internal viewport. Also collapse the sidebar grid column.
         addStyleTag: [{
           content: `
+            html, body { width: ${vpW}px !important; min-width: ${vpW}px !important; margin: 0 !important; }
             .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; width: 0 !important; }
-            .om-shell { display: block !important; grid-template-columns: 1fr !important; width: 100% !important; }
-            .om-stage { display: block !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
+            .om-shell { display: block !important; grid-template-columns: 1fr !important; width: ${vpW}px !important; }
+            .om-stage { display: block !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
             .om-page { width: ${vpW}px !important; margin: 0 auto !important; }
           `,
         }],
