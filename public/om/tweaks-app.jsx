@@ -13,7 +13,7 @@
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#A51123",
   "headingFont": "DM Serif Display",
-  "orientation": "portrait",
+  "orientation": "landscape",
   "postcardSize": "standard"
 }/*EDITMODE-END*/;
 

@@ -28,9 +28,9 @@
     --paper:      #ffffff;
     --accent:     var(--burgundy);
 
-    /* Default: Letter PORTRAIT @ 96dpi (8.5in × 11in = 816 × 1056). */
-    --page-w: 816px;
-    --page-h: 1056px;
+    /* Default: Letter LANDSCAPE @ 96dpi (11in × 8.5in = 1056 × 816). */
+    --page-w: 1056px;
+    --page-h: 816px;
     --page-pad: 64px;
 
     --sans: "Montserrat", "Futura", "Helvetica Neue", system-ui, sans-serif;
@@ -3317,7 +3317,7 @@
      <style> below) to match the current orientation toggle.
      ============================================================ */
   @media print {
-    @page { size: 8.5in 11in; margin: 0; }
+    @page { size: 11in 8.5in; margin: 0; }
     html, body { margin: 0; padding: 0; background: #fff; }
     .om-sidebar, .nav-toggle, #tweaks-root, .om-collapse-strip { display: none !important; }
     .om-shell { display: block; }
@@ -3326,8 +3326,8 @@
       box-shadow: none !important;
       page-break-after: always;
       break-after: page;
-      width: 8.5in !important;
-      height: 11in !important;
+      width: 11in !important;
+      height: 8.5in !important;
       margin: 0 !important;
       padding: var(--page-pad) !important;
       box-sizing: border-box;
@@ -3344,8 +3344,8 @@
 <!-- Rewritten by tweaks-app.jsx whenever orientation changes -->
 <style id="om-print-orientation">
   @media print {
-    @page { size: 8.5in 11in; margin: 0; }
-    .om-page { width: 8.5in !important; height: 11in !important; }
+    @page { size: 11in 8.5in; margin: 0; }
+    .om-page { width: 11in !important; height: 8.5in !important; }
   }
 </style>
 </head>
@@ -5783,14 +5783,14 @@
 
 <style id="om-print-final">
   @media print {
-    @page { size: 8.5in 11in !important; margin: 0 !important; }
+    @page { size: 11in 8.5in !important; margin: 0 !important; }
     html, body { margin: 0 !important; padding: 0 !important; }
     .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
     .om-shell { display: block !important; grid-template-columns: 1fr !important; }
     .om-stage { padding: 0 !important; display: block !important; }
     .om-page {
-      width: 8.5in !important;
-      height: 11in !important;
+      width: 11in !important;
+      height: 8.5in !important;
       margin: 0 !important;
       padding: var(--page-pad) !important;
       overflow: hidden !important;
