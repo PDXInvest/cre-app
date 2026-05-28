@@ -618,194 +618,6 @@ body[data-view="client"] .om-stage { padding-bottom: 32px; }
 }
 
 /* ============================================================
-   BULLETS + PHOTO TEMPLATE
-   ============================================================ */
-.om-page.bullets-photo {
-  padding-top: 84px;
-  padding-bottom: 80px;
-  display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  gap: 40px;
-  align-items: stretch;
-}
-.bullets-photo .photo { background: var(--grey-2); margin-top: 4px; }
-.bullets-photo .photo image-slot { width: 100%; height: 100%; display: block; }
-.bullets-photo .bp-list { list-style: none; margin: 24px 0 0; padding: 0; }
-.bullets-photo .bp-list li { padding: 14px 0; border-bottom: 1px solid var(--grey-2); }
-.bullets-photo .bp-list li:first-child { padding-top: 0; }
-.bullets-photo .bp-headline {
-  font-family: var(--serif); font-size: 17px; line-height: 1.2;
-  color: var(--charcoal-1); margin: 0;
-}
-.bullets-photo .bp-desc { font-size: 12.5px; line-height: 1.5; color: var(--charcoal-2); margin: 5px 0 0; }
-
-/* ============================================================
-   PHOTO DETAIL TEMPLATE
-   ============================================================ */
-.om-page.photo-detail { padding: 0; display: grid; grid-template-rows: 1fr auto; }
-.photo-detail .pd-photo { position: relative; overflow: hidden; background: var(--grey-2); }
-.photo-detail .pd-photo image-slot { width: 100%; height: 100%; display: block; }
-.photo-detail .pd-body { padding: 32px 48px 40px; }
-.photo-detail .pd-head { margin-bottom: 18px; }
-.photo-detail .pd-specs {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: 0 28px; margin: 0;
-}
-.photo-detail .pd-specs > div {
-  display: flex; justify-content: space-between; align-items: baseline;
-  padding: 9px 0; border-bottom: 1px dotted var(--grey-3);
-}
-.photo-detail .pd-specs dt {
-  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
-  font-weight: 600; color: var(--charcoal-3);
-}
-.photo-detail .pd-specs dd {
-  margin: 0; font-size: 13px; font-weight: 700; color: var(--charcoal-1);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ============================================================
-   STAT TILES TEMPLATE
-   ============================================================ */
-.om-page.stat-tiles { padding-top: 84px; padding-bottom: 70px; }
-.stat-tiles .st-grid { display: grid; gap: 14px; margin-top: 24px; }
-.stat-tiles .st-tile { padding: 18px 16px; background: var(--grey-1); border-top: 3px solid var(--accent); }
-.stat-tiles .st-value {
-  font-family: var(--serif); font-size: 34px; line-height: 1;
-  color: var(--charcoal-1); margin: 0;
-}
-.stat-tiles .st-label {
-  font-size: 11px; line-height: 1.4; color: var(--charcoal-2);
-  margin: 10px 0 0; font-weight: 500;
-}
-.stat-tiles .st-source {
-  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--charcoal-3); margin: 8px 0 0; font-weight: 600;
-}
-.stat-tiles .st-charts-note { font-size: 11px; color: var(--charcoal-3); margin-top: 18px; font-style: italic; }
-
-/* ============================================================
-   FINANCIAL SUMMARY TEMPLATE
-   ============================================================ */
-.om-page.financial-summary { padding-top: 84px; padding-bottom: 64px; }
-.financial-summary .fs-totals {
-  display: grid; grid-template-columns: repeat(5, 1fr);
-  gap: 12px; margin-top: 22px;
-}
-.financial-summary .fs-total { padding: 14px 16px; background: var(--grey-1); }
-.financial-summary .fs-total .l {
-  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
-  font-weight: 600; color: var(--charcoal-3); margin: 0;
-}
-.financial-summary .fs-total .n {
-  font-family: var(--serif); font-size: 24px; color: var(--charcoal-1);
-  margin: 6px 0 0; font-variant-numeric: tabular-nums;
-}
-.financial-summary .fs-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 24px; }
-.financial-summary .fs-table { width: 100%; border-collapse: collapse; }
-.financial-summary .fs-table caption {
-  text-align: left; font-size: 10px; letter-spacing: 0.2em;
-  text-transform: uppercase; font-weight: 700; color: var(--accent);
-  margin-bottom: 8px;
-}
-.financial-summary .fs-table th {
-  text-align: right; font-size: 8.5px; letter-spacing: 0.12em;
-  text-transform: uppercase; font-weight: 700; color: var(--charcoal-3);
-  padding: 6px; border-bottom: 2px solid var(--charcoal-1); white-space: nowrap;
-}
-.financial-summary .fs-table th:first-child { text-align: left; }
-.financial-summary .fs-table td {
-  padding: 7px 6px; border-bottom: 1px solid var(--grey-2);
-  text-align: right; font-size: 10.5px; font-variant-numeric: tabular-nums;
-  color: var(--charcoal-2);
-}
-.financial-summary .fs-table td:first-child { text-align: left; color: var(--charcoal-1); }
-.financial-summary .fs-table tr.is-total td {
-  font-weight: 700; color: var(--charcoal-1);
-  border-top: 1px solid var(--charcoal-1); border-bottom: none; padding-top: 9px;
-}
-
-/* ============================================================
-   PRICING STRATEGY TEMPLATE
-   ============================================================ */
-.om-page.pricing-strategy { padding-top: 84px; padding-bottom: 64px; }
-.pricing-strategy .ps-curve { margin-top: 24px; position: relative; }
-.pricing-strategy .ps-curve-svg { width: 100%; height: 120px; display: block; }
-.pricing-strategy .ps-curve-labels {
-  display: flex; justify-content: space-around; margin-top: 6px;
-  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
-  font-weight: 600; color: var(--charcoal-3);
-}
-.pricing-strategy .ps-curve-labels .is-rec { color: var(--accent); }
-.pricing-strategy .ps-table { width: 100%; border-collapse: collapse; margin-top: 22px; }
-.pricing-strategy .ps-table th {
-  text-align: right; font-size: 9px; letter-spacing: 0.16em;
-  text-transform: uppercase; font-weight: 700; color: var(--charcoal-3);
-  padding: 8px; border-bottom: 2px solid var(--charcoal-1);
-}
-.pricing-strategy .ps-table th:first-child { text-align: left; }
-.pricing-strategy .ps-table td {
-  padding: 10px 8px; border-bottom: 1px solid var(--grey-2);
-  text-align: right; font-variant-numeric: tabular-nums;
-  color: var(--charcoal-2); font-size: 13px;
-}
-.pricing-strategy .ps-table td:first-child { text-align: left; color: var(--charcoal-1); font-weight: 600; }
-.pricing-strategy .ps-table tr.is-rec { background: rgba(165,17,35,0.06); }
-.pricing-strategy .ps-table tr.is-rec td { color: var(--charcoal-1); font-weight: 700; }
-.pricing-strategy .ps-rec-bar {
-  margin-top: 22px; padding: 16px 20px; background: var(--charcoal-1);
-  color: #fff; display: flex; align-items: center; gap: 18px;
-  border-left: 4px solid var(--accent);
-}
-.pricing-strategy .ps-rec-label {
-  font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
-  font-weight: 700; color: var(--accent); white-space: nowrap;
-}
-.pricing-strategy .ps-rec-text { font-size: 14px; line-height: 1.4; }
-
-/* ============================================================
-   Q&A TEMPLATE
-   ============================================================ */
-.om-page.qa { padding-top: 84px; padding-bottom: 64px; }
-.qa .qa-list { margin-top: 26px; }
-.qa .qa-item { display: flex; gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--grey-2); }
-.qa .qa-item:first-child { padding-top: 0; }
-.qa .qa-num {
-  font-family: var(--serif); font-size: 36px; line-height: 1;
-  color: var(--accent); flex: 0 0 auto; min-width: 48px;
-}
-.qa .qa-content { flex: 1; }
-.qa .qa-q {
-  font-family: var(--serif); font-size: 20px; line-height: 1.2;
-  color: var(--charcoal-1); margin: 0 0 8px;
-}
-.qa .qa-a { font-size: 13px; line-height: 1.6; color: var(--charcoal-2); margin: 0; }
-
-/* ============================================================
-   TIMELINE TEMPLATE (Gantt)
-   ============================================================ */
-.om-page.timeline { padding-top: 84px; padding-bottom: 64px; }
-.timeline .tl-table { width: 100%; border-collapse: collapse; margin-top: 24px; table-layout: fixed; }
-.timeline .tl-table th {
-  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
-  font-weight: 700; color: var(--charcoal-3); padding: 6px 4px;
-  border-bottom: 2px solid var(--charcoal-1); text-align: center;
-}
-.timeline .tl-table th.tl-phase-h { text-align: left; width: 180px; }
-.timeline .tl-phase {
-  font-size: 11.5px; font-weight: 600; color: var(--charcoal-1);
-  padding: 10px 8px 10px 0; border-bottom: 1px solid var(--grey-2); white-space: nowrap;
-}
-.timeline .tl-cell { border-bottom: 1px solid var(--grey-2); padding: 8px 2px; position: relative; height: 32px; }
-.timeline .tl-bar { display: block; height: 12px; background: var(--accent); margin: 0 -2px; }
-
-/* ============================================================
-   BODY COPY TEMPLATE
-   ============================================================ */
-.om-page.body-copy { padding-top: 84px; padding-bottom: 70px; }
-.body-copy .bc-copy { margin-top: 4px; max-width: 760px; }
-
-/* ============================================================
    PRINT — one page per .om-page, restore headers/footers
    ============================================================ */
 @media print {
@@ -836,17 +648,16 @@ body[data-view="client"] .om-stage { padding-bottom: 32px; }
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
 <!-- Image-slot web component (drag-and-drop image placeholders) -->
-<script src="/om/image-slot.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="image-slot.js"></script>
 
 <!-- Default Glisan document. In production this is what the CRE Web App
      would POST in, or what you'd copy-paste into the Data pane. -->
-<script src="/om/om-data.js"></script>
+<script src="om-data.js"></script>
 
 <!-- Templates registry, then the renderer. Order matters: the renderer
      reads window.TEMPLATE_REGISTRY at mount. -->
-<script type="text/babel" src="/om/om-templates.jsx"></script>
-<script type="text/babel" src="/om/om-render.jsx"></script>
+<script type="text/babel" src="om-templates.jsx"></script>
+<script type="text/babel" src="om-render.jsx"></script>
 
 </body>
 </html>
