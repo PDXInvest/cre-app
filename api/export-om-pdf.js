@@ -1,7 +1,9 @@
-import chromium from '@sparticuz/chromium'
+import chromium from '@sparticuz/chromium-min'
 import puppeteer from 'puppeteer-core'
 
 export const config = { maxDuration: 60 }
+
+const CHROMIUM_PACK = 'https://github.com/Sparticuz/chromium/releases/download/v131.0.0/chromium-v131.0.0-pack.tar'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -19,7 +21,7 @@ export default async function handler(req, res) {
         height: isLandscape ? 816 : 1056,
         deviceScaleFactor: 2,
       },
-      executablePath: await chromium.executablePath(),
+      executablePath: await chromium.executablePath(CHROMIUM_PACK),
       headless: chromium.headless,
     })
 

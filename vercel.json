@@ -8,7 +8,8 @@
     },
     "api/export-om-pdf.js": {
       "maxDuration": 60,
-      "memory": 3008
+      "memory": 3008,
+      "includeFiles": "node_modules/@sparticuz/chromium-min/**"
     }
   },
   "rewrites": [
