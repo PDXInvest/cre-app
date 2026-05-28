@@ -216,7 +216,6 @@ export default function ProposalDetail() {
           <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{[pr.sub_market, pr.total_units ? pr.total_units + ' units' : ''].filter(Boolean).join(' · ')}</div>
         </div>
         <button onClick={generateOm} disabled={genningOm} style={{ padding: '6px 14px', background: '#A51123', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: genningOm ? 'not-allowed' : 'pointer', opacity: genningOm ? 0.6 : 1 }}>{genningOm ? 'Generating…' : 'Generate OM'}</button>
-        <a href={`/om?proposal=${proposalId}`} target="_blank" rel="noopener" style={{ padding: '6px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>Open OM</a>
         <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 4, fontSize: 12, fontWeight: 500 }}>{proposal.stage}</span>
       </div>
 

@@ -841,10 +841,10 @@ body[data-view="client"] .om-stage { padding-bottom: 32px; }
     page-break-after: always;
     break-after: page;
   }
-  .om-page:last-child { page-break-after: auto; }
+  .om-page:last-child { page-break-after: avoid !important; break-after: avoid !important; }
   .om-page .page-header,
   .om-page .page-footer { display: flex; }
-  .data-pane { display: none !important; }
+  .data-pane, .export-pdf-btn { display: none !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   @page { size: letter landscape; margin: 0; }
   .om-page { width: 11in !important; height: 8.5in !important; }
