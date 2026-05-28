@@ -37,7 +37,12 @@
     --serif: "DM Serif Display", Georgia, serif;
   }
 
-  * { box-sizing: border-box; }
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
   html, body {
     margin: 0; padding: 0;
     background: var(--paper);
@@ -5727,7 +5732,7 @@
                 <li><strong>Paper size:</strong> US Letter</li>
                 <li><strong>Orientation:</strong> ${layout}</li>
                 <li><strong>Margins:</strong> None / Minimum</li>
-                ${isMac ? '<li>For best PDF: click <strong>PDF → Save as PDF</strong> or <strong>Open PDF in Preview</strong></li>' : '<li><strong>Background graphics:</strong> On</li>'}
+                ${isMac ? '<li>For best PDF: click <strong>PDF → Save as PDF</strong> or <strong>Open PDF in Preview</strong></li>' : ''}
               </ul>
             </li>
           </ol>
