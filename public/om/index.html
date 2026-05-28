@@ -5709,32 +5709,53 @@
 
     function showPrintReminder() {
       if (sessionStorage.getItem('om-print-reminder-seen')) { printOM(); return }
+      const isPortrait = document.getElementById('omShell')?.classList.contains('is-portrait')
+      const layout = isPortrait ? 'Portrait' : 'Landscape'
+      const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
+      const sysShortcut = isMac ? '⌘⌥P' : 'Ctrl+Shift+P'
+
       const modal = document.createElement('div')
       modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center'
       modal.innerHTML = `
-        <div style="background:#fff;border-radius:12px;padding:28px;max-width:480px;font:14px/1.5 system-ui">
-          <h3 style="margin:0 0 12px;font-size:16px;font-weight:600">Before you print</h3>
-          <p style="margin:0 0 12px;color:#555">Chrome ignores some CSS print rules. In the print dialog, set:</p>
-          <ul style="margin:0 0 16px;padding-left:20px;color:#333">
-            <li><strong>Paper size:</strong> Letter (not the default)</li>
-            <li><strong>Margins:</strong> None</li>
-            <li><strong>Layout:</strong> ${document.getElementById('omShell')?.classList.contains('is-portrait') ? 'Portrait' : 'Landscape'}</li>
-            <li><strong>More settings → Background graphics:</strong> On</li>
-          </ul>
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button id="om-print-cancel" style="padding:8px 16px;background:#f5f5f5;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer">Cancel</button>
+        <div style="background:#fff;border-radius:12px;padding:28px;max-width:540px;font:14px/1.5 system-ui">
+          <h3 style="margin:0 0 12px;font-size:16px;font-weight:600">Print or Save as PDF</h3>
+          <p style="margin:0 0 12px;color:#555">Chrome's simplified PDF dialog hides paper size and layout. For best results, use the <strong>system print dialog</strong>:</p>
+          <ol style="margin:0 0 16px;padding-left:20px;color:#333">
+            <li>When Chrome's print panel opens, click the blue <strong>"Print using system dialog…"</strong> link at the bottom (or press <strong>${sysShortcut}</strong>).</li>
+            <li>In the system dialog, set:
+              <ul style="margin:6px 0;padding-left:20px">
+                <li><strong>Paper size:</strong> US Letter</li>
+                <li><strong>Orientation:</strong> ${layout}</li>
+                <li><strong>Margins:</strong> None / Minimum</li>
+                ${isMac ? '<li>For best PDF: click <strong>PDF → Save as PDF</strong> or <strong>Open PDF in Preview</strong></li>' : '<li><strong>Background graphics:</strong> On</li>'}
+              </ul>
+            </li>
+          </ol>
+          <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;margin-right:auto">
               <input type="checkbox" id="om-print-skip"/> Don't show again this session
             </label>
-            <button id="om-print-go" style="padding:8px 20px;background:#111;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer">Open Print Dialog</button>
+            <button id="om-print-cancel" style="padding:8px 16px;background:#f5f5f5;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer">Cancel</button>
+            ${isMac ? '<button id="om-print-preview" style="padding:8px 16px;background:#fff;color:#111;border:1px solid #ddd;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer">Open in Preview</button>' : ''}
+            <button id="om-print-go" style="padding:8px 20px;background:#111;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer">Print Now</button>
           </div>
         </div>`
       document.body.appendChild(modal)
-      document.getElementById('om-print-cancel').onclick = () => modal.remove()
-      document.getElementById('om-print-go').onclick = () => {
+      function close() {
         if (document.getElementById('om-print-skip').checked) sessionStorage.setItem('om-print-reminder-seen', '1')
         modal.remove()
-        setTimeout(printOM, 50)
+      }
+      document.getElementById('om-print-cancel').onclick = () => modal.remove()
+      document.getElementById('om-print-go').onclick = () => { close(); setTimeout(printOM, 50) }
+      const previewBtn = document.getElementById('om-print-preview')
+      if (previewBtn) previewBtn.onclick = () => {
+        close()
+        // On Mac, the standard flow: open print dialog → user picks "Open PDF in Preview"
+        // We can't programmatically force that, so show a brief instruction
+        setTimeout(() => {
+          alert('In the next dialog, click PDF → Open PDF in Preview (bottom-left). From Preview you can export as PDF with full size control.')
+          setTimeout(printOM, 100)
+        }, 50)
       }
     }
 
