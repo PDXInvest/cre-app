@@ -57,10 +57,9 @@ Comps  (independent market database — shared across all proposals, linkable to
 - Auto-filter comp analysis when launching proposal from property
 - Phase C: Refi cash flows wired into IRR — appraised value basis (NOI / refi cap rate), DSCR-constrained loan sizing, variable debt service in levered IRR and equity multiple, cash-out proceeds at refi year
 - PDF extraction: "Import from PDF" on Rent Roll, T-12 Monthly, and Income Statement tabs — uploads PDF → Claude API extracts structured data → preview/mapping screen → user confirms → writes to Supabase
-- Offering Memorandum builder: standalone HTML page at `/om` with 36-page template, sidebar TOC, image slots, tweaks panel
+- Offering Memorandum: templated renderer at `/om` — JSON document drives a registry of React templates; "Generate OM" on ProposalDetail serializes proposal data into `proposals.om_json`; server-side PDF export via Browserless
 
 ### Not Yet Started
-- OM wired to Supabase (currently uses localStorage, not database)
 - Salesforce direct API sync (currently CSV import)
 
 ---
@@ -82,8 +81,8 @@ Property-first CRM model restructuring, completed in four phases:
 /properties       → Properties list
 /properties/:id   → Property record
 /comps            → Comp database
-/om               → Offering Memorandum builder (standalone HTML, not React)
-/om?view=client   → Client view (read-only, no editor chrome)
+/om?proposal=<id> → Offering Memorandum renderer (standalone, not the SPA) — fetches proposals.om_json
+/om?proposal=<id>&view=client → Client view (read-only, no editor chrome / Data pane)
 ```
 
 ---
@@ -104,16 +103,19 @@ Property-first CRM model restructuring, completed in four phases:
 - `src/components/PdfPreviewFinancials.jsx` — T-12 / Income Statement PDF mapping modal
 - `api/extract-pdf.js` — Vercel Serverless Function (Claude API proxy for PDF extraction)
 - `src/supabase.js` — Supabase client
-- `public/om/index.html` — Offering Memorandum builder (standalone HTML/CSS/JS, 36 pages)
+- `public/om/index.html` — OM shell: all CSS + mounts `#app`, loads scripts (absolute `/om/` paths)
+- `public/om/om-templates.jsx` — 12 React templates + `TEMPLATE_REGISTRY` (in-browser Babel)
+- `public/om/om-render.jsx` — render loop, Data paste pane, Supabase `om_json` fetch, Export PDF button
+- `public/om/om-data.js` — default Glisan document (`window.OM_DEFAULT_DOC`) + JSON shape reference
 - `public/om/image-slot.js` — drag-and-drop image slot web component
-- `public/om/tweaks-app.jsx` — OM tweaks panel (accent color, font, orientation)
-- `public/om/tweaks-panel.jsx` — tweaks panel UI shell
+- `src/utils/omSerialize.js` — builds the OM JSON document from proposal data, saves to `om_json`
+- `api/export-om-pdf.js` — server-side PDF export (Browserless `/function`)
 
 ## Supabase Tables
-- `properties` — property records (imported via Salesforce CSV), includes `photos` text array
-- `proposals` — one per deal, child of property via `property_id`
+- `properties` — property records (imported via Salesforce CSV), includes `photos` text array, `walk_score`/`bike_score`
+- `proposals` — one per deal, child of property via `property_id`. Includes pricing-strategy cols, `discovery_notes` jsonb, and `om_json` jsonb (the rendered OM document for `/om`)
 - `comps` — shared market comp database, linked to properties via `property_id` FK (auto-matched on import)
-- `comp_selections` — per-proposal comp checkbox state
+- `comp_selections` — per-proposal comp checkbox state; `is_marketing` flags comps for the OM comp pages
 - `monthly_financials` — T-12 monthly income/expense data
 - `units` — rent roll units (deleted and reinserted on every save)
 - `app_settings` — app-level Growth Assumptions defaults (21 fields)
@@ -180,17 +182,17 @@ Property-first CRM model restructuring, completed in four phases:
 - Nothing writes to database until user clicks "Confirm Import"
 - Max PDF size: 10MB client-side check; Vercel function timeout: 60s (Pro plan)
 
-### Offering Memorandum Builder (`/om`)
-- Standalone HTML page served from `public/om/`, not a React component
-- Script paths must be absolute (`/om/image-slot.js`) — relative paths get caught by the SPA rewrite and serve React's index.html instead
-- 36 pages across 4 groups: Offering Memorandum (18), Proposal (7), Marketing Collateral (9), Outreach (2)
-- Sidebar TOC: collapsible sections, page checkboxes (include/exclude from print), drag-and-drop reorder, inline rename
-- Image slots: `<image-slot>` custom web component with shadow DOM, drag-and-drop upload, reframe (pan/zoom), replace/remove controls on hover
-- Tweaks panel: accent color, heading font, landscape/portrait toggle, postcard size — uses React + Babel Standalone (in-browser transpilation)
-- Client view: `?view=client` strips editor chrome, hides internal pages, disables image editing
-- Text editing: all headings/paragraphs have `contenteditable` in editor mode
-- State persistence: localStorage (page order, disabled pages, titles, image data, sidebar collapse)
-- Not yet wired to Supabase — data lives in localStorage only
+### Offering Memorandum — Templated Architecture (`/om`)
+The OM was pivoted from a hand-built 36-page HTML doc to a **dumb template renderer driven by a JSON document**. The CRE app produces the JSON; the renderer just lays it out.
+- Standalone (served from `public/om/`), NOT part of the React SPA. Script paths must be absolute (`/om/...`) — relative paths get caught by the SPA rewrite and serve the app's index.html instead.
+- **Document shape**: `{ property: {name, address, askingPrice, agent}, pages: [{ id, template, data }] }`. `pages` array = document order; inclusion = presence in the array.
+- **Templates** (`om-templates.jsx`, 12 total): `cover`, `narrative`, `table`, `card-grid`, `bullets-photo`, `photo-detail`, `stat-tiles`, `financial-summary`, `pricing-strategy`, `qa`, `timeline`, `body-copy`. Each is a pure function of `data` + global `property`. Register new ones in `TEMPLATE_REGISTRY` + add CSS to the shell.
+- **Interpolation**: `{{property.name}}`-style placeholders in page data resolved against the document before render (`om-render.jsx`).
+- **Generate flow**: ProposalDetail "Generate OM" → `src/utils/omSerialize.js` fetches proposal/units/financials/dashboard/marketing-comps, computes metrics (income source, caps, GRM, market stats, pricing band, unit mix), emits the document, saves to `proposals.om_json`, opens `/om?proposal=<id>&view=client`.
+- **Renderer data source**: when `?proposal=<id>` is present, `om-render.jsx` fetches `proposals.om_json` from Supabase (anon key embedded — public read). Falls back to `OM_DEFAULT_DOC`. The Data paste pane (editor view) is a manual override.
+- **Image slots**: `<image-slot>` web component (shadow DOM, drag-and-drop, reframe). Slot IDs come from page data (e.g. `heroSlotId`, `photoSlotId`, `slotId`).
+- **PDF export** (`api/export-om-pdf.js`): Browserless `/function` loads `?view=client`, waits for `.om-page`, `page.pdf({ format:'Letter', landscape:true, printBackground:true, scale:1 })`. Browserless JSON-stringifies returns, so the PDF is base64-encoded in-runtime (btoa, no Node Buffer) and decoded server-side. Requires `BROWSERLESS_TOKEN` Vercel env var.
+- Print: last `.om-page` uses `page-break-after: avoid` to prevent a blank trailing page.
 
 ### Growth Assumptions
 - App-level defaults in `app_settings` table
