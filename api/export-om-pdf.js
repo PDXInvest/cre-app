@@ -27,9 +27,10 @@ export default async function handler(req, res) {
 
   // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
   // page lays out at the correct width from the start.
-  // The /function runtime is browser-like — no Node Buffer. Return a Response
-  // object with the raw PDF bytes; Browserless streams it back as binary.
-  // deviceScaleFactor:1 — 2x DPI ballooned the PDF to ~51MB.
+  // Browserless /function JSON-stringifies the return value, so we can't
+  // return raw bytes or a Response. base64-encode the PDF inside the function
+  // (browser-like runtime — use btoa, not Buffer) and decode server-side.
+  // deviceScaleFactor:1 — 2x DPI ballooned the PDF.
   const fnCode = `
     export default async function ({ page }) {
       await page.setViewport({ width: ${vpW}, height: ${vpH}, deviceScaleFactor: 1 });
@@ -45,7 +46,13 @@ export default async function handler(req, res) {
         margin: { top: 0, bottom: 0, left: 0, right: 0 },
         preferCSSPageSize: false
       });
-      return new Response(pdf, { headers: { 'Content-Type': 'application/pdf' } });
+      const bytes = new Uint8Array(pdf);
+      let binary = '';
+      const CH = 0x8000;
+      for (let i = 0; i < bytes.length; i += CH) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+      }
+      return { pdf: btoa(binary) };
     }
   `
 
@@ -62,13 +69,13 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'Browserless failed: ' + text.slice(0, 200) })
     }
 
-    const arrayBuf = await bl.arrayBuffer()
-    const pdf = Buffer.from(arrayBuf)
-    console.log('Response status:', bl.status)
-    console.log('Response content-type:', bl.headers.get('content-type'))
-    console.log('Buffer length:', pdf.length)
-    console.log('First 100 bytes as string:', pdf.slice(0, 100).toString('utf8'))
-    console.log('First 4 bytes hex:', pdf.slice(0, 4).toString('hex'))
+    const json = await bl.json().catch(() => null)
+    const b64 = json?.pdf || json?.data?.pdf
+    if (!b64) {
+      console.error('Browserless returned no pdf field:', JSON.stringify(json).slice(0, 300))
+      return res.status(502).json({ error: 'Browserless returned no PDF data' })
+    }
+    const pdf = Buffer.from(b64, 'base64')
 
     if (!pdf.length || pdf.slice(0, 4).toString() !== '%PDF') {
       console.error('Invalid PDF output, first bytes:', pdf.slice(0, 16).toString())
