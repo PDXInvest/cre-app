@@ -5,6 +5,10 @@
     },
     "api/generate-om-text.js": {
       "maxDuration": 30
+    },
+    "api/export-om-pdf.js": {
+      "maxDuration": 60,
+      "memory": 3008
     }
   },
   "rewrites": [
