@@ -9,12 +9,14 @@ export default async function handler(req, res) {
   const token = process.env.BROWSERLESS_TOKEN
   if (!token) return res.status(500).json({ error: 'BROWSERLESS_TOKEN not configured' })
 
-  // Browserless maps px→inches at 72 DPI for PDF generation, so the layout
-  // must be sized at 72 DPI (11in = 792px, 8.5in = 612px) for content to fill
-  // the page with no scaling. (At 96 DPI content rendered at 75% width.)
+  // Keep the design at its native 96-DPI width (1056px landscape) and scale the
+  // whole stage by 0.75 (72/96) so it maps to the 792pt PDF page without
+  // reflowing any per-page layouts. Scaling the stage (not .om-page) preserves
+  // the design exactly.
   const isLandscape = orientation !== 'portrait'
-  const vpW = isLandscape ? 792 : 612
-  const vpH = isLandscape ? 612 : 792
+  const vpW = isLandscape ? 1056 : 816
+  const vpH = isLandscape ? 816 : 1056
+  const scale = 0.75
   const pdfW = isLandscape ? '11in' : '8.5in'
   const pdfH = isLandscape ? '8.5in' : '11in'
   const proto = req.headers['x-forwarded-proto'] || 'https'
@@ -23,9 +25,8 @@ export default async function handler(req, res) {
 
   const styleContent = `
     .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
-    .om-shell { display: block !important; width: ${vpW}px !important; grid-template-columns: 1fr !important; }
-    .om-stage { display: block !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
-    .om-page { width: ${vpW}px !important; margin: 0 !important; }
+    .om-shell { display: block !important; grid-template-columns: 1fr !important; }
+    .om-stage { transform-origin: top left !important; transform: scale(${scale}) !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
   `
 
   // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
