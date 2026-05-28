@@ -5693,7 +5693,52 @@
     document.getElementById('expandBtn').addEventListener('click', () => setCollapsed(false));
 
     /* Footer buttons */
-    document.getElementById('printBtn').addEventListener('click', () => window.print());
+    function printOM() {
+      // Inject a high-priority @page rule right before printing
+      const style = document.createElement('style')
+      const isPortrait = document.getElementById('omShell')?.classList.contains('is-portrait')
+      const size = isPortrait ? '8.5in 11in' : '11in 8.5in'
+      const w = isPortrait ? '8.5in' : '11in'
+      const h = isPortrait ? '11in' : '8.5in'
+      style.id = 'om-print-force'
+      style.textContent = `@media print { @page { size: ${size} !important; margin: 0 !important; } .om-page { width: ${w} !important; height: ${h} !important; } }`
+      document.head.appendChild(style)
+      window.print()
+      setTimeout(() => { const s = document.getElementById('om-print-force'); if (s) s.remove() }, 1000)
+    }
+
+    function showPrintReminder() {
+      if (sessionStorage.getItem('om-print-reminder-seen')) { printOM(); return }
+      const modal = document.createElement('div')
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center'
+      modal.innerHTML = `
+        <div style="background:#fff;border-radius:12px;padding:28px;max-width:480px;font:14px/1.5 system-ui">
+          <h3 style="margin:0 0 12px;font-size:16px;font-weight:600">Before you print</h3>
+          <p style="margin:0 0 12px;color:#555">Chrome ignores some CSS print rules. In the print dialog, set:</p>
+          <ul style="margin:0 0 16px;padding-left:20px;color:#333">
+            <li><strong>Paper size:</strong> Letter (not the default)</li>
+            <li><strong>Margins:</strong> None</li>
+            <li><strong>Layout:</strong> ${document.getElementById('omShell')?.classList.contains('is-portrait') ? 'Portrait' : 'Landscape'}</li>
+            <li><strong>More settings → Background graphics:</strong> On</li>
+          </ul>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button id="om-print-cancel" style="padding:8px 16px;background:#f5f5f5;border:1px solid #ddd;border-radius:8px;font-size:13px;cursor:pointer">Cancel</button>
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#666;margin-right:auto">
+              <input type="checkbox" id="om-print-skip"/> Don't show again this session
+            </label>
+            <button id="om-print-go" style="padding:8px 20px;background:#111;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer">Open Print Dialog</button>
+          </div>
+        </div>`
+      document.body.appendChild(modal)
+      document.getElementById('om-print-cancel').onclick = () => modal.remove()
+      document.getElementById('om-print-go').onclick = () => {
+        if (document.getElementById('om-print-skip').checked) sessionStorage.setItem('om-print-reminder-seen', '1')
+        modal.remove()
+        setTimeout(printOM, 50)
+      }
+    }
+
+    document.getElementById('printBtn').addEventListener('click', showPrintReminder);
     document.getElementById('clientViewBtn').addEventListener('click', () => {
       const url = new URL(location.href);
       url.searchParams.set('view', 'client');
