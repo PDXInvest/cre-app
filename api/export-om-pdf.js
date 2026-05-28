@@ -9,9 +9,12 @@ export default async function handler(req, res) {
   const token = process.env.BROWSERLESS_TOKEN
   if (!token) return res.status(500).json({ error: 'BROWSERLESS_TOKEN not configured' })
 
+  // Browserless maps px→inches at 72 DPI for PDF generation, so the layout
+  // must be sized at 72 DPI (11in = 792px, 8.5in = 612px) for content to fill
+  // the page with no scaling. (At 96 DPI content rendered at 75% width.)
   const isLandscape = orientation !== 'portrait'
-  const vpW = isLandscape ? 1056 : 816
-  const vpH = isLandscape ? 816 : 1056
+  const vpW = isLandscape ? 792 : 612
+  const vpH = isLandscape ? 612 : 792
   const pdfW = isLandscape ? '11in' : '8.5in'
   const pdfH = isLandscape ? '8.5in' : '11in'
   const proto = req.headers['x-forwarded-proto'] || 'https'
