@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { runOperatingModel, buildGA, buildT12Expenses } from '../utils/operatingModel'
 import { supabase } from '../supabase'
+import { generateOmDocument } from '../utils/omSerialize'
 import RentRoll from './RentRoll'
 import Financials from './Financials'
 import PropertyDashboard from './PropertyDashboard'
@@ -30,6 +31,7 @@ export default function ProposalDetail() {
   const [editStage, setEditStage] = useState('')
   const [editAsking, setEditAsking] = useState('')
   const [editNotes, setEditNotes] = useState('')
+  const [genningOm, setGenningOm] = useState(false)
   const [siIncome,   setSiIncome]   = useState('')
   const [siExpenses, setSiExpenses] = useState('')
   const siDashRef = { current: {} }
@@ -179,6 +181,20 @@ export default function ProposalDetail() {
     loadProposal()
   }
 
+  async function generateOm() {
+    setGenningOm(true)
+    try {
+      await generateOmDocument(proposalId)
+      window.open(`/om?proposal=${proposalId}&view=client`, '_blank', 'noopener')
+    } catch (e) {
+      console.error('Generate OM failed:', e)
+      setMsg('OM generation failed: ' + (e.message || e))
+      setTimeout(() => setMsg(''), 4000)
+    } finally {
+      setGenningOm(false)
+    }
+  }
+
   if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading...</div>
   if (!proposal) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Not found</div>
 
@@ -199,6 +215,7 @@ export default function ProposalDetail() {
           <div style={{ fontSize: 20, fontWeight: 500 }}>{pr.street || 'Untitled'}</div>
           <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{[pr.sub_market, pr.total_units ? pr.total_units + ' units' : ''].filter(Boolean).join(' · ')}</div>
         </div>
+        <button onClick={generateOm} disabled={genningOm} style={{ padding: '6px 14px', background: '#A51123', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: genningOm ? 'not-allowed' : 'pointer', opacity: genningOm ? 0.6 : 1 }}>{genningOm ? 'Generating…' : 'Generate OM'}</button>
         <a href={`/om?proposal=${proposalId}`} target="_blank" rel="noopener" style={{ padding: '6px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>Open OM</a>
         <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 4, fontSize: 12, fontWeight: 500 }}>{proposal.stage}</span>
       </div>

@@ -9,10 +9,32 @@
 
 const { useState, useEffect: useEff, useMemo, useCallback } = React;
 
-const VIEW = new URLSearchParams(location.search).get("view");
+const PARAMS = new URLSearchParams(location.search);
+const VIEW = PARAMS.get("view");
 const IS_CLIENT = VIEW === "client";
+const PROPOSAL_ID = PARAMS.get("proposal");
+
+const SUPABASE_URL = "https://azqoiryelockjtmdvozk.supabase.co";
+const SUPABASE_KEY = "sb_publishable_HqGEKnApICX4YpNXcNmQuQ_G7--sP1y";
 
 document.body.setAttribute("data-view", IS_CLIENT ? "client" : "editor");
+
+/* Fetch the proposal's om_json document from Supabase. Returns null on
+   any failure so the renderer falls back to the default doc. */
+async function fetchProposalDoc(proposalId) {
+  try {
+    if (typeof supabase === "undefined") return null;
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const { data, error } = await sb.from("proposals").select("om_json").eq("id", proposalId).single();
+    if (error || !data) return null;
+    const doc = data.om_json;
+    if (doc && Array.isArray(doc.pages) && doc.pages.length) return doc;
+    return null;
+  } catch (e) {
+    console.warn("OM: failed to fetch proposal doc", e);
+    return null;
+  }
+}
 
 /* ============================================================
    INTERPOLATION — resolve {{property.name}} style placeholders
@@ -164,15 +186,37 @@ function DataPane({ doc, setDoc }) {
    APP
    ============================================================ */
 function App() {
-  // Load saved doc from localStorage on first mount, otherwise
-  // fall back to the bundled default.
+  // When a proposal id is present, the document comes from Supabase
+  // (proposals.om_json). Otherwise load from localStorage or the
+  // bundled default.
   const [doc, setDoc] = useState(() => {
+    if (PROPOSAL_ID) return null; // loading state until Supabase resolves
     try {
       const saved = localStorage.getItem("om-doc");
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return window.OM_DEFAULT_DOC;
   });
+
+  useEff(() => {
+    if (!PROPOSAL_ID) return;
+    let cancelled = false;
+    fetchProposalDoc(PROPOSAL_ID).then(fetched => {
+      if (cancelled) return;
+      setDoc(fetched || window.OM_DEFAULT_DOC);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!doc) {
+    return (
+      <main className="om-stage">
+        <div style={{ padding: "120px 0", color: "var(--charcoal-3)", fontSize: 13, letterSpacing: "0.16em", textTransform: "uppercase" }}>
+          Loading proposal…
+        </div>
+      </main>
+    );
+  }
 
   const property = doc.property || {};
 
