@@ -10,6 +10,10 @@ export default async function handler(req, res) {
   if (!token) return res.status(500).json({ error: 'BROWSERLESS_TOKEN not configured' })
 
   const isLandscape = orientation !== 'portrait'
+  const vpW = isLandscape ? 1056 : 816
+  const vpH = isLandscape ? 816 : 1056
+  const pdfW = isLandscape ? '11in' : '8.5in'
+  const pdfH = isLandscape ? '8.5in' : '11in'
   const proto = req.headers['x-forwarded-proto'] || 'https'
   const host = req.headers.host
   const omUrl = `${proto}://${host}/om?proposal=${proposalId}&view=client`
@@ -20,6 +24,7 @@ export default async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url: omUrl,
+        viewport: { width: vpW, height: vpH },
         gotoOptions: { waitUntil: 'networkidle0', timeout: 45000 },
         // Wait until the OM data layer signals it has populated the page
         waitForFunction: {
@@ -27,9 +32,10 @@ export default async function handler(req, res) {
           timeout: 30000,
         },
         options: {
-          format: 'Letter',
-          landscape: isLandscape,
+          width: pdfW,
+          height: pdfH,
           printBackground: true,
+          scale: 1,
           margin: { top: '0', bottom: '0', left: '0', right: '0' },
           preferCSSPageSize: false,
         },
