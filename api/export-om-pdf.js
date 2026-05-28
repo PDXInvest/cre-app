@@ -1,5 +1,15 @@
 export const config = { maxDuration: 60 }
 
+/**
+ * Server-side PDF export of the templated OM. The renderer at /om is now a
+ * clean React document (no sidebar / editor chrome in client view) whose
+ * print CSS sizes each .om-page to a full Letter-landscape sheet, so the
+ * export is a straight page.pdf with no viewport/scale gymnastics.
+ *
+ * Uses Browserless /function (managed Chrome). Browserless JSON-stringifies
+ * the return value, so the PDF is base64-encoded in the runtime (btoa, no
+ * Node Buffer there) and decoded server-side.
+ */
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -9,56 +19,24 @@ export default async function handler(req, res) {
   const token = process.env.BROWSERLESS_TOKEN
   if (!token) return res.status(500).json({ error: 'BROWSERLESS_TOKEN not configured' })
 
-  // Render at native 96-DPI width (1056px landscape), then use Puppeteer's
-  // native page.pdf({ scale }) to map content onto the 792pt (11in) PDF page.
-  // Native scale preserves pagination (unlike a CSS transform, which double-
-  // scaled to ~56%).
   const isLandscape = orientation !== 'portrait'
-  const vpW = isLandscape ? 1056 : 816
-  const vpH = isLandscape ? 816 : 1056
-  const scale = 0.75
   const proto = req.headers['x-forwarded-proto'] || 'https'
   const host = req.headers.host
   const omUrl = `${proto}://${host}/om?proposal=${proposalId}&view=client`
 
-  const styleContent = `
-    .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
-    .om-shell { display: block !important; grid-template-columns: 1fr !important; }
-    .om-stage { display: block !important; padding: 0 !important; margin: 0 !important; background: transparent !important; }
-  `
-
-  // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
-  // page lays out at the correct width from the start.
-  // Browserless /function JSON-stringifies the return value, so we can't
-  // return raw bytes or a Response. base64-encode the PDF inside the function
-  // (browser-like runtime — use btoa, not Buffer) and decode server-side.
-  // deviceScaleFactor:1 — 2x DPI ballooned the PDF.
   const fnCode = `
     export default async function ({ page }) {
-      await page.setViewport({ width: ${vpW}, height: ${vpH}, deviceScaleFactor: 1 });
       await page.goto(${JSON.stringify(omUrl)}, { waitUntil: 'networkidle0', timeout: 45000 });
-      try { await page.waitForFunction(() => window.__omDataReady === true, { timeout: 30000 }); } catch (e) {}
-      await new Promise(r => setTimeout(r, 2000));
-      await page.addStyleTag({ content: ${JSON.stringify(styleContent)} });
-      const dims = await page.evaluate(() => {
-        const page = document.querySelector('.om-page');
-        const stage = document.querySelector('.om-stage');
-        return {
-          viewportW: window.innerWidth,
-          viewportH: window.innerHeight,
-          pageW: page && page.offsetWidth,
-          pageH: page && page.offsetHeight,
-          stageW: stage && stage.offsetWidth,
-          bodyW: document.body.offsetWidth
-        };
-      });
+      // Wait for the React renderer to mount the page stack.
+      await page.waitForSelector('.om-page', { timeout: 30000 });
+      // Brief settle for fonts + image-slot rendering.
+      await new Promise(r => setTimeout(r, 1500));
       const pdf = await page.pdf({
         format: 'Letter',
         landscape: ${isLandscape},
         printBackground: true,
-        scale: ${scale},
-        margin: { top: '0', bottom: '0', left: '0', right: '0' },
-        preferCSSPageSize: false
+        scale: 1,
+        margin: { top: '0', bottom: '0', left: '0', right: '0' }
       });
       const bytes = new Uint8Array(pdf);
       let binary = '';
@@ -66,7 +44,7 @@ export default async function handler(req, res) {
       for (let i = 0; i < bytes.length; i += CH) {
         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
       }
-      return { pdf: btoa(binary), dims };
+      return { pdf: btoa(binary) };
     }
   `
 
@@ -84,7 +62,6 @@ export default async function handler(req, res) {
     }
 
     const json = await bl.json().catch(() => null)
-    console.log('Layout dims:', JSON.stringify(json?.dims || json?.data?.dims))
     const b64 = json?.pdf || json?.data?.pdf
     if (!b64) {
       console.error('Browserless returned no pdf field:', JSON.stringify(json).slice(0, 300))

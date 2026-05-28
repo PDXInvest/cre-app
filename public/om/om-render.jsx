@@ -227,8 +227,49 @@ function App() {
           <Page key={p.id || i} pageDef={p} property={property} />
         ))}
       </main>
+      {!IS_CLIENT && PROPOSAL_ID && <ExportButton />}
       {!IS_CLIENT && <DataPane doc={doc} setDoc={setDoc} />}
     </>
+  );
+}
+
+/* ============================================================
+   EXPORT BUTTON — server-side PDF via /api/export-om-pdf.
+   Editor view only, requires a proposal id.
+   ============================================================ */
+function ExportButton() {
+  const [busy, setBusy] = useState(false);
+  const [label, setLabel] = useState("Export PDF");
+  const run = useCallback(async () => {
+    setBusy(true); setLabel("Generating…");
+    try {
+      const r = await fetch("/api/export-om-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposalId: PROPOSAL_ID, orientation: "landscape" }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error || ("Export failed (" + r.status + ")"));
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "OM-" + PROPOSAL_ID + ".pdf";
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setLabel("Downloaded ✓");
+      setTimeout(() => { setLabel("Export PDF"); setBusy(false); }, 2000);
+    } catch (e) {
+      console.error("PDF export error:", e);
+      setLabel("Error — retry");
+      setTimeout(() => { setLabel("Export PDF"); setBusy(false); }, 3000);
+    }
+  }, []);
+  return (
+    <button className="export-pdf-btn" onClick={run} disabled={busy}>
+      {label}
+    </button>
   );
 }
 
