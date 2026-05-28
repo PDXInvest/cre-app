@@ -38,6 +38,22 @@ export default async function handler(req, res) {
       try { await page.waitForFunction(() => window.__omDataReady === true, { timeout: 30000 }); } catch (e) {}
       await new Promise(r => setTimeout(r, 2000));
       await page.addStyleTag({ content: ${JSON.stringify(styleContent)} });
+      const dims = await page.evaluate(() => {
+        const page = document.querySelector('.om-page');
+        const shell = document.querySelector('.om-shell');
+        const stage = document.querySelector('.om-stage');
+        const sidebar = document.querySelector('.om-sidebar');
+        return {
+          pageW: page && page.offsetWidth,
+          pageH: page && page.offsetHeight,
+          shellW: shell && shell.offsetWidth,
+          stageW: stage && stage.offsetWidth,
+          sidebarW: sidebar && sidebar.offsetWidth,
+          sidebarDisplay: sidebar ? window.getComputedStyle(sidebar).display : 'not found',
+          bodyW: document.body.offsetWidth,
+          viewportW: window.innerWidth
+        };
+      });
       const pdf = await page.pdf({
         width: ${JSON.stringify(pdfW)},
         height: ${JSON.stringify(pdfH)},
@@ -52,7 +68,7 @@ export default async function handler(req, res) {
       for (let i = 0; i < bytes.length; i += CH) {
         binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
       }
-      return { pdf: btoa(binary) };
+      return { pdf: btoa(binary), dims };
     }
   `
 
@@ -70,6 +86,7 @@ export default async function handler(req, res) {
     }
 
     const json = await bl.json().catch(() => null)
+    console.log('Layout dims:', JSON.stringify(json?.dims || json?.data?.dims))
     const b64 = json?.pdf || json?.data?.pdf
     if (!b64) {
       console.error('Browserless returned no pdf field:', JSON.stringify(json).slice(0, 300))
