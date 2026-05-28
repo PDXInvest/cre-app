@@ -9,10 +9,10 @@ export default async function handler(req, res) {
   const token = process.env.BROWSERLESS_TOKEN
   if (!token) return res.status(500).json({ error: 'BROWSERLESS_TOKEN not configured' })
 
-  // Keep the design at its native 96-DPI width (1056px landscape) and scale the
-  // whole stage by 0.75 (72/96) so it maps to the 792pt PDF page without
-  // reflowing any per-page layouts. Scaling the stage (not .om-page) preserves
-  // the design exactly.
+  // Render at native 96-DPI width (1056px landscape), then use Puppeteer's
+  // native page.pdf({ scale }) to map content onto the 792pt (11in) PDF page.
+  // Native scale preserves pagination (unlike a CSS transform, which double-
+  // scaled to ~56%).
   const isLandscape = orientation !== 'portrait'
   const vpW = isLandscape ? 1056 : 816
   const vpH = isLandscape ? 816 : 1056
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
   const styleContent = `
     .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
     .om-shell { display: block !important; grid-template-columns: 1fr !important; }
-    .om-stage { transform-origin: top left !important; transform: scale(${scale}) !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
+    .om-stage { display: block !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
   `
 
   // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
@@ -62,8 +62,8 @@ export default async function handler(req, res) {
         width: ${JSON.stringify(pdfW)},
         height: ${JSON.stringify(pdfH)},
         printBackground: true,
-        scale: 1,
-        margin: { top: 0, bottom: 0, left: 0, right: 0 },
+        scale: ${scale},
+        margin: { top: '0', bottom: '0', left: '0', right: '0' },
         preferCSSPageSize: false
       });
       const bytes = new Uint8Array(pdf);
