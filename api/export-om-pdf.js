@@ -18,39 +18,39 @@ export default async function handler(req, res) {
   const host = req.headers.host
   const omUrl = `${proto}://${host}/om?proposal=${proposalId}&view=client`
 
+  const styleContent = `
+    .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; }
+    .om-shell { display: block !important; width: ${vpW}px !important; grid-template-columns: 1fr !important; }
+    .om-stage { display: block !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
+    .om-page { width: ${vpW}px !important; margin: 0 !important; }
+  `
+
+  // Real Puppeteer code run on Browserless — setViewport BEFORE goto so the
+  // page lays out at the correct width from the start.
+  const fnCode = `
+    export default async function ({ page }) {
+      await page.setViewport({ width: ${vpW}, height: ${vpH}, deviceScaleFactor: 2 });
+      await page.goto(${JSON.stringify(omUrl)}, { waitUntil: 'networkidle0', timeout: 45000 });
+      try { await page.waitForFunction(() => window.__omDataReady === true, { timeout: 30000 }); } catch (e) {}
+      await new Promise(r => setTimeout(r, 2000));
+      await page.addStyleTag({ content: ${JSON.stringify(styleContent)} });
+      const pdf = await page.pdf({
+        width: ${JSON.stringify(pdfW)},
+        height: ${JSON.stringify(pdfH)},
+        printBackground: true,
+        scale: 1,
+        margin: { top: 0, bottom: 0, left: 0, right: 0 },
+        preferCSSPageSize: false
+      });
+      return { type: 'application/pdf', data: pdf };
+    }
+  `
+
   try {
-    const bl = await fetch(`https://production-sfo.browserless.io/pdf?token=${token}`, {
+    const bl = await fetch(`https://production-sfo.browserless.io/function?token=${token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: omUrl,
-        gotoOptions: { waitUntil: 'networkidle0', timeout: 45000 },
-        // Wait until the OM data layer signals it has populated the page
-        waitForFunction: {
-          fn: 'function(){return window.__omDataReady===true}',
-          timeout: 30000,
-        },
-        // Browserless v2 /pdf has no viewport field — force the layout width
-        // via injected CSS so content fills the full PDF page regardless of
-        // the internal viewport. Also collapse the sidebar grid column.
-        addStyleTag: [{
-          content: `
-            html, body { width: ${vpW}px !important; min-width: ${vpW}px !important; margin: 0 !important; }
-            .om-sidebar, #tweaks-root, .om-collapse-strip, .om-generate-btn { display: none !important; width: 0 !important; }
-            .om-shell { display: block !important; grid-template-columns: 1fr !important; width: ${vpW}px !important; }
-            .om-stage { display: block !important; width: ${vpW}px !important; padding: 0 !important; margin: 0 !important; }
-            .om-page { width: ${vpW}px !important; margin: 0 auto !important; }
-          `,
-        }],
-        options: {
-          width: pdfW,
-          height: pdfH,
-          printBackground: true,
-          scale: 1,
-          margin: { top: '0', bottom: '0', left: '0', right: '0' },
-          preferCSSPageSize: false,
-        },
-      }),
+      body: JSON.stringify({ code: fnCode }),
     })
 
     if (!bl.ok) {
