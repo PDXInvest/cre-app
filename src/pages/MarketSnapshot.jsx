@@ -1,8 +1,8 @@
-import { useRef, useState, useLayoutEffect } from 'react'
+import { useRef, useState, useLayoutEffect, useEffect } from 'react'
 import '../snapshot.css'
 import {
   MS_QUARTERS, MS_TF_WIN, MS_TF_LABEL, MS_TF_PRIOR, MS_TF_N, MS_SPLITS, MS_METRICS,
-  msFmt, msStats, msDelta, msCompSeries, msCompBars,
+  msFmt, msStats, msDelta, msCompSeries, msCompBars, fetchSnapshotData,
 } from '../utils/snapshotData'
 
 /* ============================================================
@@ -32,16 +32,30 @@ function useMSSize() {
 function MSLine({ primary, comp, fmt, windowQs = 1, yTicks = 4 }) {
   const [ref, { w, h }] = useMSSize()
   const padL = 46, padR = 14, padT = 14, padB = 24
-  const all = primary.concat(comp || [])
-  let lo = Math.min(...all), hi = Math.max(...all)
+  // null quarters (<3 comps) are skipped for scaling and break the line into gaps
+  const finite = primary.concat(comp || []).filter(v => v != null && isFinite(v))
+  let lo = finite.length ? Math.min(...finite) : 0
+  let hi = finite.length ? Math.max(...finite) : 1
   const pad = (hi - lo) * 0.18 || Math.abs(hi) * 0.1 || 1
   lo -= pad; hi += pad
   const n = primary.length
   const x = i => padL + (i / (n - 1)) * (w - padL - padR)
   const y = v => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB)
-  const mk = d => d.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ')
+  // gapped path: start a new sub-path (M) after any null
+  const mk = d => {
+    let out = '', pen = false
+    d.forEach((v, i) => {
+      if (v == null || !isFinite(v)) { pen = false; return }
+      out += (pen ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1) + ' '
+      pen = true
+    })
+    return out.trim()
+  }
   const line = mk(primary)
-  const area = `${line} L${x(n - 1).toFixed(1)},${(h - padB).toFixed(1)} L${x(0).toFixed(1)},${(h - padB).toFixed(1)} Z`
+  const hasGaps = primary.some(v => v == null || !isFinite(v))
+  const area = (!hasGaps && finite.length) ? `${line} L${x(n - 1).toFixed(1)},${(h - padB).toFixed(1)} L${x(0).toFixed(1)},${(h - padB).toFixed(1)} Z` : null
+  let lastFin = -1
+  for (let i = n - 1; i >= 0; i--) { if (primary[i] != null && isFinite(primary[i])) { lastFin = i; break } }
   const ticks = []
   for (let i = 0; i <= yTicks; i++) ticks.push(lo + ((hi - lo) * i) / yTicks)
   const winX = x(Math.max(0, n - windowQs) - 0.5 < 0 ? 0 : n - windowQs - 0.5)
@@ -58,9 +72,9 @@ function MSLine({ primary, comp, fmt, windowQs = 1, yTicks = 4 }) {
           </g>
         ))}
         {comp && <path d={mk(comp)} fill="none" stroke="var(--mute-2)" strokeWidth="2" strokeDasharray="5 4" strokeLinejoin="round" />}
-        <path d={area} fill="rgba(165,17,35,0.07)" />
-        <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={x(n - 1)} cy={y(primary[n - 1])} r="3.5" fill="var(--accent)" />
+        {area && <path d={area} fill="rgba(165,17,35,0.07)" />}
+        {line && <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />}
+        {lastFin >= 0 && <circle cx={x(lastFin)} cy={y(primary[lastFin])} r="3.5" fill="var(--accent)" />}
         {MS_QUARTERS.map((q, i) => (i % 4 === 0 || i === n - 1) && (
           <text key={q} x={x(i)} y={h - 7} textAnchor={i === n - 1 ? 'end' : 'middle'} fontSize="9.5"
             fill="var(--mute)" fontFamily="var(--mono)">{q}</text>
@@ -71,15 +85,24 @@ function MSLine({ primary, comp, fmt, windowQs = 1, yTicks = 4 }) {
 }
 
 function MSSpark({ data, dir }) {
-  const min = Math.min(...data), max = Math.max(...data)
-  const W = 200, H = 28, pad = 3, span = (max - min) || 1
-  const pts = data.map((v, i) => [(i / (data.length - 1)) * W, H - pad - ((v - min) / span) * (H - pad * 2)])
-  const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ')
+  const W = 200, H = 28, pad = 3
+  const fin = data.filter(v => v != null && isFinite(v))
+  const min = fin.length ? Math.min(...fin) : 0
+  const max = fin.length ? Math.max(...fin) : 1
+  const span = (max - min) || 1
   const stroke = dir === 'pos' ? 'var(--pos)' : dir === 'neg' ? 'var(--neg)' : 'var(--mute)'
+  let path = '', pen = false, lastPt = null
+  data.forEach((v, i) => {
+    if (v == null || !isFinite(v)) { pen = false; return }
+    const px = (i / (data.length - 1)) * W
+    const py = H - pad - ((v - min) / span) * (H - pad * 2)
+    path += (pen ? 'L' : 'M') + px.toFixed(1) + ',' + py.toFixed(1) + ' '
+    pen = true; lastPt = [px, py]
+  })
   return (
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="bb-tile-spark">
-      <path d={path} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="2" fill={stroke} />
+      {path && <path d={path.trim()} fill="none" stroke={stroke} strokeWidth="1.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />}
+      {lastPt && <circle cx={lastPt[0]} cy={lastPt[1]} r="2" fill={stroke} />}
     </svg>
   )
 }
@@ -107,7 +130,7 @@ const MS_FILTER_OPTS = {
   county:    ['All', 'Multnomah', 'Washington', 'Clackamas', 'Clark'],
   subMarket: ['All', 'SE Portland', 'NE Portland', 'N Portland', 'NW Portland', 'SW Portland', 'Downtown Portland'],
   zip:       ['All', '97214', '97215', '97206', '97211', '97217'],
-  era:       ['Pre-1940', '1940–1970', '1970–1990', '1990–2010', '2010–Present'],
+  era:       ['All', 'Pre-1940', '1940–1970', '1970–1990', '1990–2010', '2010–Present'],
   terms:     ['All', 'Cash', 'Financed'],
   buyer:     ['All', 'Owner-occ', 'Investor'],
 }
@@ -150,7 +173,7 @@ function MSUnitRange({ min, max, onMin, onMax }) {
   )
 }
 
-function MSFilterStrip({ tf, setTf, filters, setFilter, onPresent }) {
+function MSFilterStrip({ tf, setTf, filters, setFilter, onPresent, loading }) {
   return (
     <div className="ms-filters is-stacked">
       <div className="ms-filter-row">
@@ -158,7 +181,7 @@ function MSFilterStrip({ tf, setTf, filters, setFilter, onPresent }) {
         <MSChip label="Sub-Market" value={filters.subMarket} options={MS_FILTER_OPTS.subMarket} onChange={v => setFilter('subMarket', v)} muted={filters.subMarket === 'All'} />
         <MSChip label="Zip" value={filters.zip} options={MS_FILTER_OPTS.zip} onChange={v => setFilter('zip', v)} muted={filters.zip === 'All'} />
         <MSUnitRange min={filters.unitMin} max={filters.unitMax} onMin={v => setFilter('unitMin', v)} onMax={v => setFilter('unitMax', v)} />
-        <MSChip label="Era" value={filters.era} options={MS_FILTER_OPTS.era} onChange={v => setFilter('era', v)} />
+        <MSChip label="Era" value={filters.era} options={MS_FILTER_OPTS.era} onChange={v => setFilter('era', v)} muted={filters.era === 'All'} />
         <span className="ms-filter-div"></span>
         <span className="ms-filter-rowlabel">Window</span>
         <MSTimeframe tf={tf} setTf={setTf} />
@@ -167,6 +190,7 @@ function MSFilterStrip({ tf, setTf, filters, setFilter, onPresent }) {
         <span className="ms-filter-rowlabel">Refine</span>
         <MSChip label="Terms" value={filters.terms} options={MS_FILTER_OPTS.terms} onChange={v => setFilter('terms', v)} muted={filters.terms === 'All'} />
         <MSChip label="Buyer" value={filters.buyer} options={MS_FILTER_OPTS.buyer} onChange={v => setFilter('buyer', v)} muted={filters.buyer === 'All'} />
+        {loading && <span className="ms-loading">⟳ Loading market data…</span>}
         <span className="ms-filter-spacer"></span>
         <button className="ms-saved"><span className="ms-saved-icon">★</span>Saved views</button>
         <button className="ms-compare">+ Compare</button>
@@ -231,8 +255,8 @@ function msFillInsight(m, tf) {
 /* ============================================================
    BOARD
    ============================================================ */
-function MSBoard({ metricKey, setMetricKey, tf, split, setSplit, onOpenFocus }) {
-  const m = MS_METRICS.find(x => x.key === metricKey)
+function MSBoard({ metrics, metricKey, setMetricKey, tf, split, setSplit, onOpenFocus }) {
+  const m = metrics.find(x => x.key === metricKey)
   const st = msStats(m, tf)
   const dP = msDelta(m, st.cur, st.prior)
   const dY = msDelta(m, st.cur, st.yoy)
@@ -245,7 +269,7 @@ function MSBoard({ metricKey, setMetricKey, tf, split, setSplit, onOpenFocus }) 
           <span className="bb-left-meta">Δ vs {MS_TF_PRIOR[tf]} · YoY · click a tile to drill in →</span>
         </div>
         <div className="bb-grid">
-          {MS_METRICS.map(mm => {
+          {metrics.map(mm => {
             const s = msStats(mm, tf)
             const p = msDelta(mm, s.cur, s.prior)
             const yy = msDelta(mm, s.cur, s.yoy)
@@ -310,8 +334,8 @@ function FMFootCell({ l, v, s }) {
   return <div className="fm-foot-cell"><p className="fm-foot-l">{l}</p><p className="fm-foot-v">{v}</p><p className="fm-foot-s">{s}</p></div>
 }
 
-function MSFocus({ metricKey, setMetricKey, tf, split, setSplit, onBack }) {
-  const m = MS_METRICS.find(x => x.key === metricKey)
+function MSFocus({ metrics, metricKey, setMetricKey, tf, split, setSplit, onBack }) {
+  const m = metrics.find(x => x.key === metricKey)
   const st = msStats(m, tf)
   const dP = msDelta(m, st.cur, st.prior)
   const dY = msDelta(m, st.cur, st.yoy)
@@ -327,7 +351,7 @@ function MSFocus({ metricKey, setMetricKey, tf, split, setSplit, onBack }) {
         {groups.map(g => (
           <div key={g}>
             <p className="fm-rail-group">{g}</p>
-            {MS_METRICS.filter(x => x.group === g).map(mm => {
+            {metrics.filter(x => x.group === g).map(mm => {
               const s = msStats(mm, tf)
               const p = msDelta(mm, s.cur, s.prior)
               return (
@@ -397,8 +421,8 @@ function MSFocus({ metricKey, setMetricKey, tf, split, setSplit, onBack }) {
 /* ============================================================
    PRESENT / EDITORIAL
    ============================================================ */
-function MSPresent({ metricKey, setMetricKey, tf, onBack }) {
-  const m = MS_METRICS.find(x => x.key === metricKey)
+function MSPresent({ metrics, metricKey, setMetricKey, tf, onBack }) {
+  const m = metrics.find(x => x.key === metricKey)
   const st = msStats(m, tf)
   const dP = msDelta(m, st.cur, st.prior)
   const dY = msDelta(m, st.cur, st.yoy)
@@ -424,7 +448,7 @@ function MSPresent({ metricKey, setMetricKey, tf, onBack }) {
         </div>
         <div className="ed-pills">
           {heroPills.map(k => {
-            const mm = MS_METRICS.find(x => x.key === k)
+            const mm = metrics.find(x => x.key === k)
             return <button key={k} className={`ed-pill ${k === metricKey ? 'is-on' : ''}`} onClick={() => setMetricKey(k)}>{mm.name}</button>
           })}
         </div>
@@ -458,7 +482,7 @@ function MSPresent({ metricKey, setMetricKey, tf, onBack }) {
 
         <div className="ed-supp">
           {suppKeys.map(k => {
-            const mm = MS_METRICS.find(x => x.key === k)
+            const mm = metrics.find(x => x.key === k)
             const s = msStats(mm, tf)
             const p = msDelta(mm, s.cur, s.prior)
             return (
@@ -493,10 +517,27 @@ export default function MarketSnapshot() {
   const [split, setSplit] = useState('asksold')
   const [filters, setFilters] = useState({
     county: 'All', subMarket: 'All', zip: 'All',
-    era: 'Pre-1940', terms: 'All', buyer: 'All', unitMin: 2, unitMax: 4,
+    era: 'All', terms: 'All', buyer: 'All', unitMin: 2, unitMax: 4,
   })
-  // Shared filter state. When real comp-derived data is wired into snapshotData.js,
-  // pass `filters` into the data helpers there to actually filter the series.
+  // MS_METRICS = synchronous placeholder so the UI renders instantly; real
+  // comp-derived data from fetchSnapshotData replaces it once it resolves.
+  const [metrics, setMetrics] = useState(MS_METRICS)
+  const [loading, setLoading] = useState(true)
+
+  // Fetch real comp data on mount and whenever filters change (debounced so
+  // typing in the unit-range inputs doesn't hammer Supabase).
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    const t = setTimeout(() => {
+      fetchSnapshotData(filters)
+        .then(data => { if (!cancelled) setMetrics(data) })
+        .catch(err => { if (!cancelled) console.error('Snapshot data load failed:', err) })
+        .finally(() => { if (!cancelled) setLoading(false) })
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [filters])
+
   const setFilter = (key, value) => {
     setFilters(f => ({ ...f, [key]: value }))
   }
@@ -505,16 +546,16 @@ export default function MarketSnapshot() {
   return (
     <div className="ms-page">
       {view === 'present' ? (
-        <MSPresent metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} onBack={() => setView('board')} />
+        <MSPresent metrics={metrics} metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} onBack={() => setView('board')} />
       ) : (
         <>
-          <MSFilterStrip tf={tf} setTf={setTf} filters={filters} setFilter={setFilter} onPresent={() => setView('present')} />
+          <MSFilterStrip tf={tf} setTf={setTf} filters={filters} setFilter={setFilter} onPresent={() => setView('present')} loading={loading} />
           <MSNowStrip />
           {view === 'board' && (
-            <MSBoard metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} split={split} setSplit={setSplit} onOpenFocus={() => openFocus()} />
+            <MSBoard metrics={metrics} metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} split={split} setSplit={setSplit} onOpenFocus={() => openFocus()} />
           )}
           {view === 'focus' && (
-            <MSFocus metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} split={split} setSplit={setSplit} onBack={() => setView('board')} />
+            <MSFocus metrics={metrics} metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} split={split} setSplit={setSplit} onBack={() => setView('board')} />
           )}
         </>
       )}

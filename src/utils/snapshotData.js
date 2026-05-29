@@ -1,3 +1,5 @@
+import { supabase } from '../supabase'
+
 /* ============================================================
    MARKET SNAPSHOT — data-binding seam (§7)
    ------------------------------------------------------------
@@ -113,6 +115,7 @@ export const MS_METRICS = [
 
 /* ---- formatting ---- */
 export function msFmt(v, t) {
+  if (v == null || (typeof v === 'number' && isNaN(v))) return '—'   // null quarter → gap
   switch (t) {
     case 'k$':   return '$' + Math.round(v) + 'k'
     case '$':    return '$' + Math.round(v)
@@ -127,7 +130,8 @@ export function msFmt(v, t) {
   }
 }
 
-const msMean = a => a.reduce((x, y) => x + y, 0) / (a.length || 1)
+// mean that ignores null/non-finite quarters; returns null if the window is empty
+const msMean = a => { const f = a.filter(v => v != null && isFinite(v)); return f.length ? f.reduce((x, y) => x + y, 0) / f.length : null }
 
 /* current / prior / yoy window means for a timeframe */
 export function msStats(m, tf) {
@@ -141,6 +145,7 @@ export function msStats(m, tf) {
 
 /* format a delta between two values per the metric's delta style */
 export function msDelta(m, a, b) {
+  if (a == null || b == null || isNaN(a) || isNaN(b)) return { txt: '—', dir: 'flat', arrow: '' }
   const d = a - b
   let txt, dir
   switch (m.dFmt) {
@@ -164,7 +169,7 @@ export function msCompSeries(m, splitKey) {
   const sp = MS_SPLITS.find(s => s.key === splitKey)
   if (!sp) return null
   if (splitKey === 'asksold' && m.ask) return { label: sp.comp, primaryLabel: sp.primary, data: m.ask }
-  return { label: sp.comp, primaryLabel: sp.primary, data: m.series.map(v => v * sp.factor) }
+  return { label: sp.comp, primaryLabel: sp.primary, data: m.series.map(v => (v == null || !isFinite(v)) ? null : v * sp.factor) }
 }
 
 /* comparison bars (Subject vs other geographies/cohorts) for the active split */
@@ -183,5 +188,98 @@ export function msCompBars(m, tf, splitKey) {
   return rows.map(r => {
     const val = cur * r.mult
     return { label: r.label, val: msFmt(val, m.fmt), pct: Math.round((Math.abs(val) / max) * 100), accent: !!r.accent }
+  })
+}
+
+/* ============================================================
+   REAL DATA — fetchSnapshotData(filters)
+   Queries the comps table and returns the SAME MS_METRICS shape
+   with real quarterly series. Used by MarketSnapshot once mounted;
+   MS_METRICS (above) is the synchronous initial/loading state.
+   Field names verified against CompDatabase.jsx calcFields.
+   ============================================================ */
+
+function _parseDt(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d }
+function _daysBetween(a, b) { const da = _parseDt(a), db = _parseDt(b); if (!da || !db) return null; return Math.round(Math.abs((db - da) / 86400000)) }
+function _median(arr) { const c = arr.filter(v => v != null && isFinite(v)); if (!c.length) return null; const s = [...c].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+// quarter index 0..19 (Q1·21 = 0) or -1 if outside the window
+function _quarterIdx(s) { const d = _parseDt(s); if (!d) return -1; const i = (d.getFullYear() - 2021) * 4 + Math.floor(d.getMonth() / 3); return (i >= 0 && i < MS_QUARTERS.length) ? i : -1 }
+// active DOM: listing→pending if pending exists, else listing→today (mirrors CompDatabase)
+function _activeDom(c) { if (!c.listing_date) return null; return c.pending_date ? _daysBetween(c.listing_date, c.pending_date) : _daysBetween(c.listing_date, new Date().toISOString()) }
+// era strings differ between filter (en-dash) and stored comps (hyphen) — normalize
+const _normEra = e => (e || '').replace(/[–—]/g, '-').trim().toLowerCase()
+
+// per-comp value for each median metric. cap/grm use the codebase-standard
+// comp formulas (adv_noi/sale_price, sale_price/adv_agi) guarded by exclusion flags.
+const _MVAL = {
+  ppu:       c => (c.sale_price && c.num_units)   ? (c.sale_price / c.num_units) / 1000 : null,  // → $k/unit
+  psf:       c => (c.sale_price && c.building_sf) ? c.sale_price / c.building_sf : null,
+  cap:       c => (!c.x_noi && c.adv_noi > 0 && c.sale_price) ? (c.adv_noi / c.sale_price) * 100 : null, // → %
+  grm:       c => (!c.x_agi && c.adv_agi > 0 && c.sale_price) ? c.sale_price / c.adv_agi : null,
+  asksold:   c => (c.sale_price && c.listing_price) ? ((c.sale_price - c.listing_price) / c.listing_price) * 100 : null,
+  activedom: c => _activeDom(c),
+  dom:       c => _daysBetween(c.listing_date, c.sale_date),
+  escrow:    c => _daysBetween(c.pending_date, c.sale_date),
+}
+// asking-price comparison series (for the asksold split) on ppu/psf
+const _AVAL = {
+  ppu: c => (c.listing_price && c.num_units)   ? (c.listing_price / c.num_units) / 1000 : null,
+  psf: c => (c.listing_price && c.building_sf) ? c.listing_price / c.building_sf : null,
+}
+
+export async function fetchSnapshotData(filters = {}) {
+  // paginated fetch — 1,000-row pages, stable sort (sale_date DESC nulls last, id ASC)
+  let all = [], from = 0
+  const PAGE = 1000
+  while (true) {
+    const { data, error } = await supabase.from('comps').select('*')
+      .order('sale_date', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    all = all.concat(data || [])
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+
+  // scope / era / unit-range filters from the Snapshot filter strip
+  const f = filters || {}
+  const unitMin = (f.unitMin === '' || f.unitMin == null) ? null : Number(f.unitMin)
+  const unitMax = (f.unitMax === '' || f.unitMax == null) ? null : Number(f.unitMax)
+  const eraSel  = (f.era && f.era !== 'All') ? _normEra(f.era) : null
+  const scoped = all.filter(c => {
+    if (f.county    && f.county    !== 'All' && c.property_county !== f.county) return false
+    if (f.subMarket && f.subMarket !== 'All' && c.sub_market      !== f.subMarket) return false
+    if (eraSel && _normEra(c.year_built_era) !== eraSel) return false
+    const u = Number(c.num_units)
+    if (unitMin != null && u && u < unitMin) return false
+    if (unitMax != null && u && u > unitMax) return false
+    return true
+  })
+
+  // bucket comps by quarter (sold by sale_date, listings by listing_date)
+  const soldByQ   = MS_QUARTERS.map(() => [])
+  const listedByQ = MS_QUARTERS.map(() => [])
+  for (const c of scoped) {
+    if (c.status === 'Sold') { const q = _quarterIdx(c.sale_date); if (q >= 0) soldByQ[q].push(c) }
+    const lq = _quarterIdx(c.listing_date); if (lq >= 0) listedByQ[lq].push(c)
+  }
+
+  // median series with the <3-comps-per-quarter → null rule
+  const medSeries = key => soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_MVAL[key]))))
+  const seriesFor = key => {
+    switch (key) {
+      case 'nsold':     return soldByQ.map(b => b.length)                                   // count of closed sales
+      case 'nlisted':   return listedByQ.map(b => b.length)                                 // count of new listings
+      case 'volume':    return soldByQ.map(b => b.reduce((s, c) => s + (Number(c.sale_price) || 0), 0) / 1e6) // sum $M
+      case 'cashshare': return soldByQ.map(b => b.length < 3 ? null : (b.filter(c => !Number(c.loan_amount)).length / b.length) * 100)
+      default:          return _MVAL[key] ? medSeries(key) : (MS_METRICS.find(m => m.key === key)?.series || [])
+    }
+  }
+
+  return MS_METRICS.map(m => {
+    const out = { ...m, series: seriesFor(m.key) }
+    if (m.ask && _AVAL[m.key]) out.ask = soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_AVAL[m.key]))))
+    return out
   })
 }
