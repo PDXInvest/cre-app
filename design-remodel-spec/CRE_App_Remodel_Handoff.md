@@ -123,7 +123,7 @@ Header + "+ New proposal". Search + **stage segmented tabs**. Table: Property (+
 
 Badge colors: New = info/blue, Working = warn/amber, Archived = neutral grey.
 
-> **Open consideration (not a blocker):** folding both Sold and Lost into Archived loses the won/lost distinction. If pipeline reporting needs it, add a separate `outcome` field (won/lost/shelved) alongside the 3-stage `status`. Confirm with Ben before migrating; otherwise proceed with the table above.
+> **Decided:** Sold and Lost both fold into Archived. No separate `outcome` field — the won/lost distinction is intentionally not preserved. Proceed with the table above as-is.
 
 ### 4b. Workspace — tabs
 Top bar: back "‹ Pipeline", serif address title + meta, stage `<select>`, primary **"Open OM →"** button (entry point only — see §6). Sub-nav tabs with burgundy underline on active:
@@ -154,6 +154,7 @@ This is the most significant change after the stage split. **The comp stops bein
 - **Layout:** list + side preview (same `pl-split` primitive as Properties). Left = lightweight scannable list (name, sub-market · units · era, price, $/unit · status). Click → preview/record panel on the right.
 - **Record panel:** sections — Sale (status, date, price, sold $/unit, $/SF), Returns & velocity (cap, GRM, units, era, Active/Total DOM, escrow, sub-market), Notes. Plus an attachable **photo** (drag-drop; replace the prototype's `image-slot.js` web component with the codebase's existing upload component).
 - **Inline click-to-edit:** each field is click-to-edit (hover grey / focus amber). Edits write to the **shared `comps` table** (affects all proposals' comp pool — this is the intentional shared-asset design). Consider a subtle "edits apply everywhere" cue.
+- **Photo upload:** the Properties module already has a built-but-unused upload component. **Use that existing component for the comp photo.** Do not port the prototype's `image-slot.js`.
 - **KPI strip + filters:** reskin the existing computed aggregates (Total comps, Showing/filtered count, Sold comps, Median $/unit, Median GRM, Median cap, Med Active/Total DOM, Med Escrow). Keep existing filter/search logic; port the look.
 
 ### Build the comp as a FULL record, not a thin view of the CSV
@@ -208,7 +209,8 @@ Do not scatter the placeholder numbers through components — keep them in the o
 5. **CSV-merge logic:** deferred to the eventual move-off-Salesforce; do not build now.
 6. **Market Snapshot:** build full Board→Focus→Present UI now; defer data wiring (comp-derived) behind a documented binding seam.
 
-## 9. Open items to confirm before/while building
-- Won/lost distinction: add an `outcome` field, or accept Sold+Lost → Archived as-is?
-- Confirm the existing deal-model state can cleanly feed the two split tabs without recompute on tab switch.
-- Identify the existing upload component to replace the prototype's `image-slot.js`.
+## 9. Items for Claude Code to verify in the repo (not open decisions)
+- **Two-tab state sharing:** before splitting the deal model into Pricing + Acquisition Model, inspect how the current model holds its state, and ensure both tabs read from the **same shared source at the workspace level** — so switching tabs does not recompute the model or lose user inputs. This is a code-verification task, not a product decision.
+- **Upload component:** wire the existing (built-but-unused) Properties upload component to the comp photo; do not use `image-slot.js`.
+
+_All product decisions from this session are resolved — see §8. Nothing in this section requires input from Ben._
