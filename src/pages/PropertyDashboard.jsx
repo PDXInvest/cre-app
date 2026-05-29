@@ -119,7 +119,7 @@ function KV({ label, value, bold, color }) {
   )
 }
 
-export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange, opModel, onOpModelRefresh, onDashSaved }) {
+export default function PropertyDashboard({ proposal, benchStats, benchDateRange, onBenchDateRangeChange, opModel, onOpModelRefresh, onDashSaved, view = 'all' }) {
   const [dash,       setDash]       = useState({})
   const [finRow,     setFinRow]     = useState(null)
   const [rrUnits,    setRrUnits]    = useState([])
@@ -131,6 +131,11 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   const [msg,        setMsg]        = useState('')
 
   const pr = proposal.properties || {}
+
+  // Split into Pricing / Acquisition Model tabs (§4b). One mounted instance serves
+  // both views (shared dash state, no recompute) — gate which section groups render.
+  const showPricing = view === 'pricing' || view === 'all'
+  const showAcq     = view === 'acquisition' || view === 'all'
 
   useEffect(() => { loadData() }, [proposal.id])
 
@@ -524,6 +529,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
     <div>
       {msg && <div style={{ padding:'6px 12px', background:'#EAF3DE', color:'#27500A', borderRadius:8, fontSize:12, marginBottom:12 }}>{msg}</div>}
 
+      {showPricing && (<>
       {/* ═══ MARKET BENCHMARKS ════════════════════════════════════════════ */}
       <div style={card}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', ...sHdr }}>
@@ -633,7 +639,9 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
         </div>
         <div style={{ fontSize:10, color:'#bbb', marginTop:6 }}>* Target: Return % = cash-on-cash back-calculation. Full IRR available after operating model is built.</div>
       </div>
+      </>)}
 
+      {showAcq && (<>
       {/* ═══ ACQUISITION DETAILS ════════════════════════════════════════ */}
       <div style={card}>
         <div style={sHdr}>Acquisition Details</div>
@@ -784,7 +792,9 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
           </div>
         ))}
       </div>
+      </>)}
 
+      {showPricing && (<>
       {/* ═══ MARKET PRICING BAND ════════════════════════════════════════ */}
       <div style={card}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', ...sHdr }}>
@@ -809,7 +819,9 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
           ))}
         </div>
       </div>
+      </>)}
 
+      {showAcq && (<>
       {/* ═══ INVESTOR RETURNS ═══════════════════════════════════════════ */}
       <div style={card}>
         <div style={sHdr}>Investor Returns</div>
@@ -972,6 +984,7 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             </>
         }
       </div>
+      </>)}
 
       <div style={{ display:'flex', justifyContent:'flex-end', paddingBottom:32 }}>
         <button onClick={save} disabled={saving}

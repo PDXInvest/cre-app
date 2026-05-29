@@ -3,15 +3,18 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../supabase'
 
 const STAGES = ['Prospect', 'Proposal', 'Exclusive Rep', 'Active', 'Under Contract', 'Sold', 'Lost']
-const STAGE_STYLE = {
-  'Prospect':      { bg: '#F1EFE8', color: '#5F5E5A' },
-  'Proposal':      { bg: '#E6F1FB', color: '#0C447C' },
-  'Exclusive Rep': { bg: '#EEEDFE', color: '#3C3489' },
-  'Active':        { bg: '#E1F5EE', color: '#085041' },
-  'Under Contract':{ bg: '#FAEEDA', color: '#633806' },
-  'Sold':          { bg: '#EAF3DE', color: '#27500A' },
-  'Lost':          { bg: '#FCEBEB', color: '#791F1F' },
+
+/* §4a stage simplification 8→3. Applied for display + filtering only (non-destructive —
+   underlying proposals.stage values are untouched). A one-time DB migration to normalize
+   stored values is deferred pending Ben's call. */
+const NEW_STAGES = ['New', 'Working', 'Archived']
+const STAGE_MAP = {
+  'Prospect': 'New',
+  'Proposal': 'Working', 'Exclusive Rep': 'Working', 'Active': 'Working', 'Under Contract': 'Working',
+  'Sold': 'Archived', 'Lost': 'Archived',
 }
+const toNewStage = s => STAGE_MAP[s] || (NEW_STAGES.includes(s) ? s : 'New')
+const stageBadgeClass = ns => ns === 'New' ? 'prospect' : ns === 'Working' ? 'working' : 'neutral'
 
 const fC = v => v ? '$' + Math.round(parseFloat(v)).toLocaleString() : '—'
 
@@ -39,7 +42,7 @@ export default function Proposals() {
   }
 
   const filtered = proposals.filter(p => {
-    if (stageFilter !== 'All' && p.stage !== stageFilter) return false
+    if (stageFilter !== 'All' && toNewStage(p.stage) !== stageFilter) return false
     if (search) {
       const q = search.toLowerCase()
       const addr = (p.properties?.street || '').toLowerCase()
@@ -49,86 +52,84 @@ export default function Proposals() {
     return true
   })
 
-  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading...</div>
+  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Loading…</div>
 
   if (view === 'new') return (
-    <NewProposal
-      preSelectedPropertyId={searchParams.get('property')}
-      onBack={() => { setView('pipeline'); navigate('/proposals', { replace: true }) }}
-      onCreated={(id) => { navigate(`/proposals/${id}`) }}
-    />
+    <div className="legacy-main">
+      <NewProposal
+        preSelectedPropertyId={searchParams.get('property')}
+        onBack={() => { setView('pipeline'); navigate('/proposals', { replace: true }) }}
+        onCreated={(id) => { navigate(`/proposals/${id}`) }}
+      />
+    </div>
   )
 
-  const sc = {}
-  STAGES.forEach(s => sc[s] = proposals.filter(p => p.stage === s).length)
+  const counts = { All: proposals.length }
+  NEW_STAGES.forEach(ns => { counts[ns] = proposals.filter(p => toNewStage(p.stage) === ns).length })
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 10 }}>
+    <>
+      <div className="ap-head">
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 500 }}>Proposals</h1>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-            {proposals.length} total · {propertyCount} properties
-          </div>
+          <p className="ap-head-eyebrow">Underwriting pipeline</p>
+          <h1 className="ap-head-title">Proposals</h1>
+          <p className="ap-head-meta"><b>{proposals.length}</b> deals · {propertyCount.toLocaleString()} properties</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setView('new')} style={{ padding: '8px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500 }}>
-            + New proposal
-          </button>
+        <div className="ap-head-actions">
+          <button className="btn btn-primary" onClick={() => setView('new')}>+ New proposal</button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search proposals..." style={{ flex: '1 1 200px', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13 }} />
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {['All', ...STAGES].map(s => {
-            const st = STAGE_STYLE[s] || {}
-            const on = stageFilter === s
-            const count = s === 'All' ? proposals.length : (sc[s] || 0)
-            return (
-              <button key={s} onClick={() => setStageFilter(s)} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, border: on && s !== 'All' ? `0.5px solid ${st.color}` : '0.5px solid transparent', background: on && s !== 'All' ? st.bg : 'transparent', color: on && s !== 'All' ? st.color : '#888', cursor: 'pointer' }}>
-                {s} <span style={{ opacity: 0.6 }}>{count}</span>
-              </button>
-            )
-          })}
+      <div className="ap-toolbar">
+        <div className="ap-search">
+          <span className="ap-search-icon">⌕</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search proposals…" />
         </div>
+        <div className="ap-segs">
+          {['All', ...NEW_STAGES].map(s => (
+            <button key={s} className={`ap-seg ${stageFilter === s ? 'is-on' : ''}`} onClick={() => setStageFilter(s)}>
+              {s}<span className="ap-seg-count">{counts[s] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+        <span className="ap-toolbar-meta">Showing {filtered.length} of {proposals.length}</span>
       </div>
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', padding: '10px 14px', borderBottom: '0.5px solid rgba(0,0,0,0.08)', background: '#f5f5f5' }}>
-          <div style={{ flex: 1, fontSize: 11, fontWeight: 500, color: '#888' }}>PROPERTY</div>
-          <div style={{ width: 120, textAlign: 'right', fontSize: 11, fontWeight: 500, color: '#888' }}>ASKING PRICE</div>
-          <div style={{ width: 120, textAlign: 'right', fontSize: 11, fontWeight: 500, color: '#888' }}>STAGE</div>
-        </div>
-        {filtered.length === 0 && (
-          <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>
-            {proposals.length === 0 ? 'No proposals yet. Click "+ New proposal" to get started.' : 'No proposals match the current filter.'}
-          </div>
-        )}
-        {filtered.map(p => {
-          const st = STAGE_STYLE[p.stage] || { bg: '#eee', color: '#555' }
-          const addr = p.properties?.street || 'Untitled'
-          const sub = [p.properties?.sub_market, p.properties?.total_units ? p.properties.total_units + ' units' : '', p.properties?.property_sub_type].filter(Boolean).join(' · ')
-          return (
-            <div key={p.id} onClick={() => navigate(`/proposals/${p.id}`)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '0.5px solid rgba(0,0,0,0.06)', cursor: 'pointer', background: '#fff' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
-              onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{addr}</div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{sub}</div>
-              </div>
-              <div style={{ width: 120, textAlign: 'right' }}>
-                <div style={{ fontWeight: 500 }}>{fC(p.asking_price)}</div>
-                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{p.date_created}</div>
-              </div>
-              <div style={{ width: 120, textAlign: 'right' }}>
-                <span style={{ background: st.bg, color: st.color, padding: '2px 9px', borderRadius: 4, fontSize: 11, fontWeight: 500 }}>{p.stage}</span>
-              </div>
-            </div>
-          )
-        })}
+      <div className="ap-tablewrap">
+        <table className="ap-table">
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th className="num">Asking price</th>
+              <th>Stage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={3} className="ap-table-empty">{proposals.length === 0 ? 'No proposals yet. Click "+ New proposal" to get started.' : 'No proposals match the current filter.'}</td></tr>
+            ) : filtered.map(p => {
+              const ns = toNewStage(p.stage)
+              const addr = p.properties?.street || 'Untitled'
+              const sub = [p.properties?.sub_market, p.properties?.total_units ? p.properties.total_units + ' units' : '', p.properties?.property_sub_type].filter(Boolean).join(' · ')
+              return (
+                <tr key={p.id} onClick={() => navigate(`/proposals/${p.id}`)}>
+                  <td>
+                    <div className="ap-cell-primary">{addr}</div>
+                    <div className="ap-cell-sub">{sub}</div>
+                  </td>
+                  <td className="num">
+                    {p.asking_price
+                      ? <><span className="ap-cell-figure">{fC(p.asking_price)}</span><div className="ap-cell-date">{p.date_created || ''}</div></>
+                      : <span className="ap-dash">—</span>}
+                  </td>
+                  <td><span className={`ap-badge ${stageBadgeClass(ns)}`}>{ns}</span></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
-    </div>
+    </>
   )
 }
 

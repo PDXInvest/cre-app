@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import Papa from 'papaparse'
 
-const fC = v => v != null ? '$' + Math.round(v).toLocaleString() : '—'
+const fC = v => v != null && v !== '' ? '$' + Math.round(v).toLocaleString() : '—'
 const fP = v => v != null ? (v * 100).toFixed(1) + '%' : '—'
 const fX = v => v != null ? v.toFixed(2) + 'x' : '—'
 const fD = v => v ? new Date(v).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'
+const fDom = v => v != null ? v + 'd' : '—'
 
 function parseDate(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d }
 function daysBetween(a, b) { const da = parseDate(a), db = parseDate(b); if (!da || !db) return null; return Math.round(Math.abs((db - da) / 86400000)) }
@@ -33,10 +34,58 @@ function calcFields(row) {
   }
 }
 
-const STATUS_STYLE = {
-  'Sold': { bg: '#E1F5EE', color: '#085041' },
-  'Active': { bg: '#E6F1FB', color: '#0C447C' },
-  'Pending': { bg: '#FAEEDA', color: '#633806' },
+const compBadgeClass = s => s === 'Sold' ? 'active' : (s === 'Pending' || s === 'Under Contract') ? 'uc' : s === 'Active' ? 'prospect' : 'neutral'
+
+const STATUS_OPTIONS = ['Active', 'Pending', 'Under Contract', 'Sold', 'CAN/EXP/WTH']
+
+function addCalcFields(c) {
+  const xAgi = c.x_agi, xNoi = c.x_noi
+  const saleP = c.sale_price, listP = c.listing_price, origP = c.original_listing_price
+  const units = c.num_units, sf = c.building_sf
+  const agi = c.adv_agi, noi = c.adv_noi
+  const domTotal = daysBetween(c.listing_date, c.sale_date)
+  const domPending = daysBetween(c.listing_date, c.pending_date)
+  const domToday = c.listing_date ? daysBetween(c.listing_date, new Date().toISOString()) : null
+  return {
+    ...c,
+    _activeDom: c.listing_date ? (c.pending_date ? domPending : domToday) : null,
+    _totalDom: domTotal,
+    _escrow: daysBetween(c.pending_date, c.sale_date),
+    _soldPPU: (saleP && units) ? saleP / units : null,
+    _soldPSF: (saleP && sf) ? saleP / sf : null,
+    _soldGRM: (!xAgi && agi && saleP) ? saleP / agi : null,
+    _soldCap: (!xNoi && noi && saleP) ? noi / saleP : null,
+    _delivered: (saleP && origP) ? saleP / origP : null,
+    _aPPU: (listP && units) ? listP / units : null,
+    _aGRM: (!xAgi && agi && listP) ? listP / agi : null,
+    _aCap: (!xNoi && noi && listP) ? noi / listP : null,
+  }
+}
+
+/* Click-to-edit field — hover grey, focus amber. Writes to the shared comps table. */
+function EditableField({ value, type = 'text', options, fmt, onSave }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    const done = (v, commit) => { if (commit) onSave(v); setEditing(false) }
+    if (type === 'select') {
+      return (
+        <select className="cdb-input" autoFocus defaultValue={value ?? ''}
+          onChange={e => done(e.target.value, true)} onBlur={() => setEditing(false)}>
+          <option value="">—</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )
+    }
+    return (
+      <input className="cdb-input" autoFocus
+        type={type === 'number' ? 'number' : type === 'date' ? 'date' : 'text'}
+        defaultValue={type === 'date' && value ? String(value).slice(0, 10) : (value ?? '')}
+        onBlur={e => done(e.target.value, true)}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') done(null, false) }} />
+    )
+  }
+  const disp = fmt ? fmt(value) : (value == null || value === '' ? '—' : value)
+  return <span className="cdb-edit" tabIndex={0} role="button" onClick={() => setEditing(true)} onFocus={() => setEditing(true)}>{disp}</span>
 }
 
 export default function CompDatabase() {
@@ -51,59 +100,36 @@ export default function CompDatabase() {
   const [subFilter, setSubFilter] = useState('All')
   const [typeFilter, setTypeFilter] = useState('All')
   const [sortCol, setSortCol] = useState('sale_date')
-  const [sortDir, setSortDir] = useState('desc')
-  const [editComp, setEditComp] = useState(null) // comp being edited
+  const [selectedId, setSelectedId] = useState(null)
 
   useEffect(() => { loadComps() }, [])
 
-  function addCalcFields(c) {
-  const xAgi = c.x_agi, xNoi = c.x_noi
-  const saleP = c.sale_price, listP = c.listing_price, origP = c.original_listing_price
-  const units = c.num_units, sf = c.building_sf
-  const agi = c.adv_agi, noi = c.adv_noi
-  const domTotal = daysBetween(c.listing_date, c.sale_date)
-  const domPending = daysBetween(c.listing_date, c.pending_date)
-  const domToday = c.listing_date ? daysBetween(c.listing_date, new Date().toISOString()) : null
-  return {
-    ...c,
-    // Active DOM: listing → today, capped at pending date if exists
-    _activeDom: c.listing_date ? (c.pending_date ? domPending : domToday) : null,
-    // Total DOM: listing → sale
-    _totalDom: domTotal,
-    // Escrow Length: pending → sale
-    _escrow: daysBetween(c.pending_date, c.sale_date),
-    _soldPPU: (saleP && units) ? saleP / units : null,
-    _soldPSF: (saleP && sf) ? saleP / sf : null,
-    _soldGRM: (!xAgi && agi && saleP) ? saleP / agi : null,
-    _soldCap: (!xNoi && noi && saleP) ? noi / saleP : null,
-    _delivered: (saleP && origP) ? saleP / origP : null,
-    _aPPU: (listP && units) ? listP / units : null,
-    _aGRM: (!xAgi && agi && listP) ? listP / agi : null,
-    _aCap: (!xNoi && noi && listP) ? noi / listP : null,
+  async function loadComps() {
+    setLoading(true)
+    let all = [], from = 0, pageSize = 1000, done = false
+    while (!done) {
+      const { data, error } = await supabase.from('comps').select('*')
+        .order('sale_date', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1)
+      if (error) { console.error(error); setMsg('Error loading comps'); break }
+      all = all.concat(data || [])
+      if (!data || data.length < pageSize) done = true
+      else from += pageSize
+    }
+    setComps(all.map(addCalcFields))
+    setLoading(false)
   }
-}
-
-async function loadComps() {
-  setLoading(true)
-  let all = [], from = 0, pageSize = 1000, done = false
-  while (!done) {
-    const { data, error } = await supabase.from('comps').select('*')
-      .order('sale_date', { ascending: false, nullsFirst: false })
-      .order('id', { ascending: true })
-      .range(from, from + pageSize - 1)
-    if (error) { console.error(error); setMsg('Error loading comps'); break }
-    all = all.concat(data || [])
-    if (!data || data.length < pageSize) done = true
-    else from += pageSize
-  }
-  setComps(all.map(addCalcFields))
-  setLoading(false)
-}
 
   async function importComps(text) {
     setImporting(true)
-    const { data: rows } = Papa.parse(text, { header: true, skipEmptyLines: true })
+    // CSV resilience: strip UTF-8 BOM + trim headers (Salesforce export quirks).
+    const clean = text.replace(/^﻿/, '')
+    const { data: rows } = Papa.parse(clean, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() })
     const records = rows.map(calcFields).filter(r => r.sale_id)
+    // NOTE (deferred · remodel §5): re-import upserts by sale_id and will overwrite any
+    // manual inline edits. The CSV-vs-manual merge/conflict rule is intentionally deferred
+    // until the move off Salesforce — revisit then.
     const chunkSize = 50
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize)
@@ -140,6 +166,20 @@ async function loadComps() {
     return matched
   }
 
+  // Inline edit → write to the SHARED comps table (affects every proposal's comp pool).
+  async function updateCompField(id, field, value, type) {
+    let v = value
+    if (type === 'number') v = (value === '' || value == null) ? null : Number(value)
+    else if (type === 'date') v = value || null
+    else if (type === 'bool') v = !!value
+    else v = value === '' ? null : value
+    setComps(prev => prev.map(c => c.id === id ? addCalcFields({ ...c, [field]: v }) : c))
+    const { error } = await supabase.from('comps').update({ [field]: v }).eq('id', id)
+    if (error) { console.error(error); setMsg('Save failed: ' + error.message); setTimeout(() => setMsg(''), 4000); loadComps(); return }
+    setMsg('Saved · applies to all proposals')
+    setTimeout(() => setMsg(''), 2500)
+  }
+
   const filtered = comps.filter(c => {
     if (statusFilter !== 'All' && c.status !== statusFilter) return false
     if (subFilter !== 'All' && c.sub_market !== subFilter) return false
@@ -156,8 +196,8 @@ async function loadComps() {
     if (av == null && bv == null) return 0
     if (av == null) return 1
     if (bv == null) return -1
-    if (typeof av === 'number') return sortDir === 'asc' ? av - bv : bv - av
-    return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
+    if (typeof av === 'number') return bv - av
+    return String(bv).localeCompare(String(av))
   })
 
   const sold = filtered.filter(c => c.status === 'Sold')
@@ -173,178 +213,52 @@ async function loadComps() {
   const submarkets = ['All', ...new Set(comps.map(c => c.sub_market).filter(Boolean))].sort()
   const subtypes = ['All', ...new Set(comps.map(c => c.property_sub_type).filter(Boolean))].sort()
 
-  function toggleSort(col) {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('desc') }
-  }
+  const selected = (selectedId && comps.find(c => c.id === selectedId)) || sorted[0] || null
 
-  const th = (label, col) => (
-    <th onClick={() => toggleSort(col)} style={{ padding: '8px 10px', fontSize: 11, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', color: sortCol === col ? '#185FA5' : '#666', textAlign: 'left', userSelect: 'none' }}>
-      {label}{sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
-    </th>
-  )
-
-  // ── Edit modal helpers ──
-  const EDIT_FIELDS = [
-    { section: 'Property', fields: [
-      { key: 'property_name', label: 'Property Name', type: 'text' },
-      { key: 'sale_name', label: 'Sale Name', type: 'text' },
-      { key: 'status', label: 'Status', type: 'select', options: ['Active', 'Pending', 'Under Contract', 'Sold', 'CAN/EXP/WTH'] },
-      { key: 'property_sub_type', label: 'Property Type', type: 'text' },
-      { key: 'year_built', label: 'Year Built', type: 'number' },
-      { key: 'year_built_era', label: 'Year Built Era', type: 'text' },
-    ]},
-    { section: 'Location', fields: [
-      { key: 'market', label: 'Market', type: 'text' },
-      { key: 'sub_market', label: 'Sub-Market', type: 'text' },
-      { key: 'property_county', label: 'County', type: 'text' },
-      { key: 'zip_code', label: 'Zip Code', type: 'text' },
-    ]},
-    { section: 'Size', fields: [
-      { key: 'num_units', label: '# of Units', type: 'number' },
-      { key: 'building_sf', label: 'Building SF', type: 'number' },
-    ]},
-    { section: 'Dates', fields: [
-      { key: 'listing_date', label: 'Listing Date', type: 'date' },
-      { key: 'pending_date', label: 'Pending Date', type: 'date' },
-      { key: 'sale_date', label: 'Sale Date', type: 'date' },
-      { key: 'can_exp_wth_date', label: 'CAN/EXP/WTH Date', type: 'date' },
-    ]},
-    { section: 'Financial', fields: [
-      { key: 'original_listing_price', label: 'Original Listing Price', type: 'number' },
-      { key: 'listing_price', label: 'Listing Price', type: 'number' },
-      { key: 'sale_price', label: 'Sale Price', type: 'number' },
-      { key: 'loan_amount', label: 'Loan Amount', type: 'number' },
-      { key: 'sales_terms', label: 'Sales Terms', type: 'text' },
-    ]},
-    { section: 'Analysis', fields: [
-      { key: 'adv_agi', label: 'AGI', type: 'number' },
-      { key: 'adv_noi', label: 'NOI', type: 'number' },
-      { key: 'x_agi', label: 'Exclude AGI', type: 'checkbox' },
-      { key: 'x_noi', label: 'Exclude NOI', type: 'checkbox' },
-      { key: 'owner_occ_purchase', label: 'Owner Occupied', type: 'checkbox' },
-    ]},
-  ]
-
-  function openEdit(comp) {
-    const form = {}
-    EDIT_FIELDS.forEach(s => s.fields.forEach(f => {
-      const v = comp[f.key]
-      if (f.type === 'date' && v) {
-        try { form[f.key] = new Date(v).toISOString().split('T')[0] } catch { form[f.key] = v || '' }
-      } else if (f.type === 'checkbox') {
-        form[f.key] = !!v
-      } else {
-        form[f.key] = v ?? ''
-      }
-    }))
-    form._id = comp.id
-    form._sale_id = comp.sale_id
-    setEditComp(form)
-  }
-
-  function updateEditField(key, value) {
-    setEditComp(prev => ({ ...prev, [key]: value }))
-  }
-
-  async function saveEdit() {
-    if (!editComp) return
-    const updates = {}
-    EDIT_FIELDS.forEach(s => s.fields.forEach(f => {
-      let v = editComp[f.key]
-      if (f.type === 'number') v = v === '' ? null : Number(v)
-      else if (f.type === 'date') v = v || null
-      else if (f.type === 'checkbox') v = !!v
-      updates[f.key] = v
-    }))
-    const { error } = await supabase.from('comps').update(updates).eq('id', editComp._id)
-    if (error) { console.error(error); setMsg('Save error'); return }
-    setMsg('Comp updated')
-    setTimeout(() => setMsg(''), 3000)
-    setEditComp(null)
-    loadComps()
-  }
-
-  const editInputStyle = { width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12 }
-
-  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading comps...</div>
+  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Loading comps…</div>
 
   return (
-    <div>
-      {/* ── EDIT MODAL ── */}
-      {editComp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setEditComp(null)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 640, maxHeight: '85vh', overflow: 'auto', padding: '24px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Edit Comp — {editComp.property_name || editComp._sale_id}</h3>
-              <button onClick={() => setEditComp(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>×</button>
-            </div>
-            {EDIT_FIELDS.map(section => (
-              <div key={section.section} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{section.section}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {section.fields.map(f => (
-                    <div key={f.key} style={f.type === 'checkbox' ? { display: 'flex', alignItems: 'center', gap: 6 } : {}}>
-                      {f.type === 'checkbox' ? (
-                        <>
-                          <input type="checkbox" checked={!!editComp[f.key]} onChange={e => updateEditField(f.key, e.target.checked)} />
-                          <label style={{ fontSize: 12, color: '#555' }}>{f.label}</label>
-                        </>
-                      ) : (
-                        <>
-                          <label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 2 }}>{f.label}</label>
-                          {f.type === 'select' ? (
-                            <select value={editComp[f.key] || ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle}>
-                              <option value="">—</option>
-                              {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : (
-                            <input type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'} value={editComp[f.key] ?? ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle} />
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
-              <button onClick={() => setEditComp(null)} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveEdit} style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: 10 }}>
+    <>
+      <div className="ap-head">
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 500 }}>Comp database</h1>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{comps.length} comps · {msg && <span style={{ color: '#27500A' }}>{msg}</span>}</div>
+          <p className="ap-head-eyebrow">Comparable sales</p>
+          <h1 className="ap-head-title">Comp Database</h1>
+          <p className="ap-head-meta"><b>{comps.length.toLocaleString()}</b> comps · feeds every proposal{msg && <span style={{ color: 'var(--pos)', marginLeft: 10 }}>{msg}</span>}</p>
         </div>
-        <button onClick={() => setShowPaste(p => !p)} style={{ padding: '8px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500 }}>
-          {comps.length ? '+ Update comps' : 'Import comps'}
-        </button>
+        <div className="ap-head-actions">
+          <button className="btn btn-primary" onClick={() => setShowPaste(p => !p)}>{comps.length ? '+ Update comps' : 'Import comps'}</button>
+        </div>
       </div>
 
       {showPaste && (
-        <div style={{ background: '#fff', border: '0.5px solid #378ADD', borderRadius: 12, padding: '1rem', marginBottom: '1rem' }}>
-          <p style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Open your Salesforce CSV in TextEdit → Cmd+A → Cmd+C → paste below:</p>
-          <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder="Paste CSV content here..." style={{ width: '100%', minHeight: 100, border: '0.5px solid #ddd', borderRadius: 8, padding: 10, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button onClick={() => importComps(pasteText)} disabled={importing || !pasteText.trim()} style={{ padding: '7px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: importing ? 0.6 : 1 }}>
-              {importing ? 'Importing...' : 'Import'}
-            </button>
-            <button onClick={() => { setShowPaste(false); setPasteText('') }} style={{ padding: '7px 14px', background: '#f5f5f5', border: '0.5px solid #ddd', borderRadius: 8 }}>Cancel</button>
+        <div className="ap-import">
+          <div className="ap-import-box">
+            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8 }}>Open your Salesforce CSV in TextEdit → Cmd+A → Cmd+C → paste below:</p>
+            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder="Paste CSV content here…" />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button className="btn btn-primary" onClick={() => importComps(pasteText)} disabled={importing || !pasteText.trim()}>
+                {importing ? 'Importing…' : 'Import'}
+              </button>
+              <button className="btn btn-secondary" onClick={() => { setShowPaste(false); setPasteText('') }}>Cancel</button>
+            </div>
           </div>
         </div>
       )}
 
-      {comps.length > 0 && (
+      {comps.length === 0 ? (
+        <div className="ap-tablewrap">
+          <div className="ap-table-empty" style={{ paddingTop: '4rem' }}>
+            <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--ink)' }}>No comps yet</p>
+            <p style={{ fontSize: 13, marginBottom: '1.25rem' }}>Import your Salesforce CSV to get started.</p>
+            <button className="btn btn-primary" onClick={() => setShowPaste(true)}>Import comps</button>
+          </div>
+        </div>
+      ) : (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: '1rem' }}>
+          <div className="cdb-kpis">
             {[
-              { l: 'Total comps', v: comps.length },
-              { l: 'Showing', v: filtered.length },
-              { l: 'Sold comps', v: sold.length },
+              { l: 'Total comps', v: comps.length.toLocaleString() },
+              { l: 'Sold comps', v: sold.length.toLocaleString() },
               { l: 'Median $/unit', v: stats.medPPU ? fC(stats.medPPU) : '—' },
               { l: 'Median GRM', v: stats.medGRM ? fX(stats.medGRM) : '—' },
               { l: 'Median cap', v: stats.medCap ? fP(stats.medCap) : '—' },
@@ -352,93 +266,181 @@ async function loadComps() {
               { l: 'Med Total DOM', v: stats.medTotalDom != null ? Math.round(stats.medTotalDom) + 'd' : '—' },
               { l: 'Med Escrow', v: stats.medEscrow != null ? Math.round(stats.medEscrow) + 'd' : '—' },
             ].map(s => (
-              <div key={s.l} style={{ background: '#fff', borderRadius: 8, padding: '10px 12px', border: '0.5px solid rgba(0,0,0,0.08)' }}>
-                <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>{s.l}</div>
-                <div style={{ fontSize: 18, fontWeight: 500 }}>{s.v}</div>
+              <div className="cdb-kpi" key={s.l}>
+                <p className="cdb-kpi-l">{s.l}</p>
+                <p className="cdb-kpi-v">{s.v}</p>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, sub-market, zip..." style={{ flex: '1 1 200px', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13 }} />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13 }}>
-              {['All', 'Sold', 'Active', 'Pending'].map(s => <option key={s}>{s === 'All' ? 'All statuses' : s}</option>)}
-            </select>
-            <select value={subFilter} onChange={e => setSubFilter(e.target.value)} style={{ padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13, maxWidth: 160 }}>
-              {submarkets.map(s => <option key={s} value={s}>{s === 'All' ? 'All sub-markets' : s}</option>)}
-            </select>
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 13 }}>
-              {subtypes.map(s => <option key={s} value={s}>{s === 'All' ? 'All types' : s}</option>)}
-            </select>
+          <div className="ap-toolbar">
+            <div className="ap-search">
+              <span className="ap-search-icon">⌕</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, sub-market, zip…" />
+            </div>
+            <div className="cdb-selects">
+              <select className="cdb-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                {['All', 'Sold', 'Active', 'Pending'].map(s => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s}</option>)}
+              </select>
+              <select className="cdb-select" value={subFilter} onChange={e => setSubFilter(e.target.value)}>
+                {submarkets.map(s => <option key={s} value={s}>{s === 'All' ? 'All sub-markets' : s}</option>)}
+              </select>
+              <select className="cdb-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+                {subtypes.map(s => <option key={s} value={s}>{s === 'All' ? 'All types' : s}</option>)}
+              </select>
+              <select className="cdb-select" value={sortCol} onChange={e => setSortCol(e.target.value)}>
+                <option value="sale_date">Sort: Sale date</option>
+                <option value="sale_price">Sort: Sale price</option>
+                <option value="_soldPPU">Sort: $/unit</option>
+                <option value="num_units">Sort: Units</option>
+              </select>
+            </div>
+            <span className="ap-toolbar-meta">Showing {sorted.length.toLocaleString()} of {comps.length.toLocaleString()}</span>
           </div>
 
-          <div style={{ overflowX: 'auto', background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 1400 }}>
-              <thead>
-                <tr style={{ background: '#f5f5f5', borderBottom: '0.5px solid rgba(0,0,0,0.1)' }}>
-                  {th('Property', 'property_name')}
-                  {th('Status', 'status')}
-                  {th('Sub-market', 'sub_market')}
-                  {th('Units', 'num_units')}
-                  {th('Era', 'year_built_era')}
-                  {th('Listing Date', 'listing_date')}
-                  {th('Pending Date', 'pending_date')}
-                  {th('Sale Date', 'sale_date')}
-                  {th('Sale price', 'sale_price')}
-                  {th('Sold $/unit', '_soldPPU')}
-                  {th('GRM', '_soldGRM')}
-                  {th('Cap', '_soldCap')}
-                  {th('Active DOM', '_activeDom')}
-                  {th('Total DOM', '_totalDom')}
-                  {th('Escrow', '_escrow')}
-                  {th('Terms', 'sales_terms')}
-                  <th style={{ padding: '8px 10px', width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.length === 0 && (
-                  <tr><td colSpan={17} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No comps match filters</td></tr>
-                )}
-                {sorted.map((c, i) => {
-                  const st = STATUS_STYLE[c.status] || { bg: '#f5f5f5', color: '#555' }
-                  return (
-                    <tr key={c.id} style={{ borderBottom: '0.5px solid rgba(0,0,0,0.06)', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <td style={{ padding: '8px 10px', fontWeight: 500, whiteSpace: 'nowrap', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.property_name || c.sale_name || '—'}</td>
-                      <td style={{ padding: '8px 10px' }}><span style={{ background: st.bg, color: st.color, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 500 }}>{c.status || '—'}</span></td>
-                      <td style={{ padding: '8px 10px', color: '#555' }}>{c.sub_market || '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.num_units || '—'}</td>
-                      <td style={{ padding: '8px 10px', color: '#555' }}>{c.year_built_era || '—'}</td>
-                      <td style={{ padding: '8px 10px', color: '#555' }}>{fD(c.listing_date)}</td>
-                      <td style={{ padding: '8px 10px', color: '#555' }}>{fD(c.pending_date)}</td>
-                      <td style={{ padding: '8px 10px', color: '#555' }}>{fD(c.sale_date)}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.sale_price ? fC(c.sale_price) : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._soldPPU ? fC(c._soldPPU) : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.x_agi ? <span style={{ color: '#999', fontSize: 11 }}>N/A</span> : (c._soldGRM ? fX(c._soldGRM) : '—')}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c.x_noi ? <span style={{ color: '#999', fontSize: 11 }}>N/A</span> : (c._soldCap ? fP(c._soldCap) : '—')}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._activeDom != null ? c._activeDom + 'd' : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._totalDom != null ? c._totalDom + 'd' : '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>{c._escrow != null ? c._escrow + 'd' : '—'}</td>
-                      <td style={{ padding: '8px 10px', color: '#555' }}>{c.sales_terms || '—'}</td>
-                      <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                        <button onClick={() => openEdit(c)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#185FA5', padding: '2px 4px' }} title="Edit comp">✎</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          <div className="pl-split">
+            <div className="pl-split-list">
+              <div className="pl-rows">
+                {sorted.map(c => (
+                  <div key={c.id} className={`pl-row ${selected && c.id === selected.id ? 'is-sel' : ''}`} onClick={() => setSelectedId(c.id)}>
+                    <div>
+                      <div className="pl-row-addr">{c.property_name || c.sale_name || '—'}</div>
+                      <div className="pl-row-sub">{[c.sub_market, c.num_units ? `${c.num_units} units` : null, c.year_built_era].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    <div>
+                      <div className="pl-row-fig">{fC(c.sale_price || c.listing_price)}</div>
+                      <div className="pl-row-figsub">{c._soldPPU ? `${fC(c._soldPPU)}/unit · ` : ''}{c.status || '—'}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {selected && <CompPreview c={selected} onEdit={updateCompField} />}
           </div>
-          <p style={{ fontSize: 11, color: '#999', marginTop: 8 }}>{sorted.length} of {comps.length} comps · click headers to sort · N/A = flagged financials</p>
         </>
       )}
+    </>
+  )
+}
 
-      {comps.length === 0 && !showPaste && (
-        <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '3rem', textAlign: 'center', color: '#888' }}>
-          <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 8, color: '#333' }}>No comps yet</p>
-          <p style={{ fontSize: 13, marginBottom: '1.5rem' }}>Import your Salesforce CSV to get started</p>
-          <button onClick={() => setShowPaste(true)} style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500 }}>Import comps</button>
+function CompPreview({ c, onEdit }) {
+  // editable field → writes raw column to shared comps table
+  const ef = (field, type, fmt, options) => (
+    <EditableField value={c[field]} type={type} fmt={fmt} options={options} onSave={v => onEdit(c.id, field, v, type)} />
+  )
+  const fact = (label, node) => (
+    <div className="pr-fact"><span className="pr-fact-l">{label}</span><span className="pr-fact-v">{node}</span></div>
+  )
+  const computed = (label, value) => (
+    <div className="pr-fact"><span className="pr-fact-l">{label}</span><span className={`pr-fact-v ${value === '—' ? 'dash' : ''}`}>{value}</span></div>
+  )
+
+  return (
+    <aside className="pl-preview">
+      <div className="pl-preview-bar">
+        <span className="pl-preview-crumb">Comp preview · click a value to edit</span>
+        <span className={`ap-badge ${compBadgeClass(c.status)}`}>{c.status || '—'}</span>
+      </div>
+
+      <CompPhoto comp={c} onSave={onEdit} />
+
+      <div className="pl-preview-body">
+        <h2 className="pl-preview-title">{ef('property_name', 'text')}</h2>
+        <p className="pl-preview-meta">{[c.sale_name, c.sub_market].filter(Boolean).join(' · ') || '—'}</p>
+        <p className="cdb-cue" style={{ marginBottom: 4 }}>Edits write to the shared comp database — they apply to every proposal.</p>
+
+        <p className="pr-card-h" style={{ marginTop: 12 }}>Sale</p>
+        <div className="pr-facts solo">
+          {fact('Status', ef('status', 'select', null, STATUS_OPTIONS))}
+          {fact('Listing date', ef('listing_date', 'date', fD))}
+          {fact('Pending date', ef('pending_date', 'date', fD))}
+          {fact('Sale date', ef('sale_date', 'date', fD))}
+          {fact('Original list', ef('original_listing_price', 'number', fC))}
+          {fact('Listing price', ef('listing_price', 'number', fC))}
+          {fact('Sale price', ef('sale_price', 'number', fC))}
+          {computed('Sold $/unit', fC(c._soldPPU))}
+          {computed('$ / SF', fC(c._soldPSF))}
         </div>
-      )}
+
+        <p className="pr-card-h" style={{ marginTop: 16 }}>Returns &amp; velocity</p>
+        <div className="pr-facts">
+          {computed('Cap rate', c.x_noi ? 'Excl.' : fP(c._soldCap))}
+          {computed('GRM', c.x_agi ? 'Excl.' : fX(c._soldGRM))}
+          {fact('NOI (adv)', ef('adv_noi', 'number', fC))}
+          {fact('AGI (adv)', ef('adv_agi', 'number', fC))}
+          {fact('Units', ef('num_units', 'number'))}
+          {fact('Building SF', ef('building_sf', 'number', v => v != null ? Number(v).toLocaleString() : '—'))}
+          {fact('Era', ef('year_built_era', 'text'))}
+          {fact('Year built', ef('year_built', 'number'))}
+          {computed('Active DOM', fDom(c._activeDom))}
+          {computed('Total DOM', fDom(c._totalDom))}
+          {computed('Escrow', fDom(c._escrow))}
+        </div>
+
+        <p className="pr-card-h" style={{ marginTop: 16 }}>Location</p>
+        <div className="pr-facts">
+          {fact('Market', ef('market', 'text'))}
+          {fact('County', ef('property_county', 'text'))}
+          {fact('Sub-market', ef('sub_market', 'text'))}
+          {fact('Zip', ef('zip_code', 'text'))}
+        </div>
+
+        <p className="pr-card-h" style={{ marginTop: 16 }}>Terms &amp; data flags</p>
+        <div className="pr-facts solo">
+          {fact('Loan amount', ef('loan_amount', 'number', fC))}
+          {fact('Sales terms', ef('sales_terms', 'text'))}
+        </div>
+        <label className="cdb-flag"><input type="checkbox" checked={!!c.x_noi} onChange={e => onEdit(c.id, 'x_noi', e.target.checked, 'bool')} /> Exclude NOI from cap-rate stats</label>
+        <label className="cdb-flag"><input type="checkbox" checked={!!c.x_agi} onChange={e => onEdit(c.id, 'x_agi', e.target.checked, 'bool')} /> Exclude AGI from GRM stats</label>
+        <label className="cdb-flag" style={{ borderBottom: 'none' }}><input type="checkbox" checked={!!c.owner_occ_purchase} onChange={e => onEdit(c.id, 'owner_occ_purchase', e.target.checked, 'bool')} /> Owner-occupied purchase</label>
+
+        <p className="pr-card-h" style={{ marginTop: 16 }}>Notes</p>
+        <textarea key={c.id} className="cdb-notes" defaultValue={c.notes || ''} placeholder="Add a note…"
+          onBlur={e => { if ((e.target.value || '') !== (c.notes || '')) onEdit(c.id, 'notes', e.target.value, 'text') }} />
+      </div>
+    </aside>
+  )
+}
+
+/* Comp photo — single image stored in the comp-photos bucket; URL saved to comps.photo. */
+function CompPhoto({ comp, onSave }) {
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef()
+
+  async function handleUpload(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+    const filePath = `${comp.id}/${fileName}`
+    const { error } = await supabase.storage.from('comp-photos').upload(filePath, file)
+    if (error) { console.error(error) }
+    else {
+      const { data: { publicUrl } } = supabase.storage.from('comp-photos').getPublicUrl(filePath)
+      await onSave(comp.id, 'photo', publicUrl, 'text')
+    }
+    setUploading(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  async function remove() {
+    if (comp.photo) {
+      const parts = comp.photo.split('/comp-photos/')
+      if (parts.length === 2) await supabase.storage.from('comp-photos').remove([decodeURIComponent(parts[1])])
+    }
+    await onSave(comp.id, 'photo', null, 'text')
+  }
+
+  return (
+    <div className="cdb-photo" style={comp.photo ? { backgroundImage: `url(${comp.photo})` } : undefined}>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} style={{ display: 'none' }} />
+      {!comp.photo && <span className="cdb-photo-label">No photo</span>}
+      <div className="cdb-photo-actions">
+        <button className="cdb-photo-btn" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          {uploading ? 'Uploading…' : comp.photo ? 'Replace' : '+ Add photo'}
+        </button>
+        {comp.photo && <button className="cdb-photo-btn" onClick={remove}>Remove</button>}
+      </div>
     </div>
   )
 }

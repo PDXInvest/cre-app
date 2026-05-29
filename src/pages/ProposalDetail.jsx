@@ -7,16 +7,24 @@ import RentRoll from './RentRoll'
 import Financials from './Financials'
 import PropertyDashboard from './PropertyDashboard'
 
-const STAGES = ['Prospect', 'Proposal', 'Exclusive Rep', 'Active', 'Under Contract', 'Sold', 'Lost']
-const STAGE_STYLE = {
-  'Prospect':      { bg: '#F1EFE8', color: '#5F5E5A' },
-  'Proposal':      { bg: '#E6F1FB', color: '#0C447C' },
-  'Exclusive Rep': { bg: '#EEEDFE', color: '#3C3489' },
-  'Active':        { bg: '#E1F5EE', color: '#085041' },
-  'Under Contract':{ bg: '#FAEEDA', color: '#633806' },
-  'Sold':          { bg: '#EAF3DE', color: '#27500A' },
-  'Lost':          { bg: '#FCEBEB', color: '#791F1F' },
+/* §4a stage simplification 8→3 — display/filter mapping (non-destructive).
+   Per Ben's decision: keep stored values, write the new 3-stage value when edited. */
+const NEW_STAGES = ['New', 'Working', 'Archived']
+const STAGE_MAP = {
+  'Prospect': 'New',
+  'Proposal': 'Working', 'Exclusive Rep': 'Working', 'Active': 'Working', 'Under Contract': 'Working',
+  'Sold': 'Archived', 'Lost': 'Archived',
 }
+const toNewStage = s => STAGE_MAP[s] || (NEW_STAGES.includes(s) ? s : 'New')
+
+const WORKSPACE_TABS = [
+  { key: 'pricing',     label: 'Pricing' },
+  { key: 'acquisition', label: 'Acquisition Model' },
+  { key: 'comp',        label: 'Comp analysis' },
+  { key: 'rent',        label: 'Rent roll' },
+  { key: 'dd',          label: 'Due diligence' },
+  { key: 'fin',         label: 'Financials' },
+]
 
 const fC = v => v ? '$' + Math.round(parseFloat(v)).toLocaleString() : '—'
 
@@ -24,7 +32,7 @@ export default function ProposalDetail() {
   const { id: proposalId } = useParams()
   const navigate = useNavigate()
   const [proposal, setProposal] = useState(null)
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState('pricing')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -181,13 +189,29 @@ export default function ProposalDetail() {
     loadProposal()
   }
 
+  // Stage selector writes the new 3-stage value directly (per Ben's map-only/write-new choice).
+  async function changeStage(ns) {
+    setEditStage(ns)
+    setProposal(p => p ? { ...p, stage: ns } : p)
+    await supabase.from('proposals').update({ stage: ns }).eq('id', proposalId)
+    setMsg('Stage updated')
+    setTimeout(() => setMsg(''), 2000)
+  }
+
   async function generateOm() {
+    // Open the tab synchronously inside the click gesture, THEN serialize/save and
+    // point it at the OM. window.open() after an await is treated as non-user-initiated
+    // and gets popup-blocked — which is why the button appeared to do nothing.
+    const omWindow = window.open('about:blank', '_blank')
     setGenningOm(true)
     try {
-      await generateOmDocument(proposalId)
-      window.open(`/om?proposal=${proposalId}&view=client`, '_blank', 'noopener')
+      await generateOmDocument(proposalId)               // serialize proposal → save to proposals.om_json
+      const url = `/om?proposal=${proposalId}&view=client`
+      if (omWindow) { omWindow.opener = null; omWindow.location.href = url }
+      else window.open(url, '_blank', 'noopener')         // fallback if the sync open was blocked
     } catch (e) {
       console.error('Generate OM failed:', e)
+      if (omWindow) omWindow.close()
       setMsg('OM generation failed: ' + (e.message || e))
       setTimeout(() => setMsg(''), 4000)
     } finally {
@@ -195,126 +219,89 @@ export default function ProposalDetail() {
     }
   }
 
-  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading...</div>
-  if (!proposal) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Not found</div>
+  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Loading…</div>
+  if (!proposal) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Not found</div>
 
   const pr = proposal.properties || {}
-  const st = STAGE_STYLE[proposal.stage] || { bg: '#eee', color: '#555' }
-  const kv = (l, v) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid rgba(0,0,0,0.06)' }}>
-      <span style={{ color: '#888' }}>{l}</span>
-      <span style={{ fontWeight: v ? 500 : 400, color: v ? '#111' : '#bbb' }}>{v || '—'}</span>
-    </div>
-  )
+  const metaParts = [pr.sub_market, pr.total_units ? `${pr.total_units} units` : null, pr.property_sub_type, pr.year_built_era].filter(Boolean)
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <button onClick={() => navigate('/proposals')} style={{ padding: '6px 12px', fontSize: 12, color: '#666', background: '#f5f5f5', border: '0.5px solid #ddd', borderRadius: 8 }}>← Pipeline</button>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 20, fontWeight: 500 }}>{pr.street || 'Untitled'}</div>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{[pr.sub_market, pr.total_units ? pr.total_units + ' units' : ''].filter(Boolean).join(' · ')}</div>
+    <div className="uw">
+      <div className="uw-top">
+        <button className="uw-back" onClick={() => navigate('/proposals')}>‹ Pipeline</button>
+        <div className="uw-top-id">
+          <h1 className="uw-top-title">{pr.street || 'Untitled'}</h1>
+          <p className="uw-top-meta">{metaParts.join(' · ')}</p>
         </div>
-        <button onClick={generateOm} disabled={genningOm} style={{ padding: '6px 14px', background: '#A51123', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: genningOm ? 'not-allowed' : 'pointer', opacity: genningOm ? 0.6 : 1 }}>{genningOm ? 'Generating…' : 'Generate OM'}</button>
-        <span style={{ background: st.bg, color: st.color, padding: '3px 10px', borderRadius: 4, fontSize: 12, fontWeight: 500 }}>{proposal.stage}</span>
+        <div className="uw-top-spacer" />
+        {msg && <span className="uw-top-msg">{msg}</span>}
+        <select className="uw-stage-select" value={toNewStage(proposal.stage)} onChange={e => changeStage(e.target.value)}>
+          {NEW_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <button className="btn btn-primary" onClick={generateOm} disabled={genningOm}>{genningOm ? 'Generating…' : 'Open OM →'}</button>
       </div>
 
-      {msg && <div style={{ padding: '8px 12px', background: '#EAF3DE', color: '#27500A', borderRadius: 8, fontSize: 12, marginBottom: '1rem' }}>{msg}</div>}
-
-      <div style={{ display: 'flex', gap: 4, marginBottom: '1.25rem', borderBottom: '0.5px solid rgba(0,0,0,0.1)', paddingBottom: 0 }}>
-        {['overview', 'due diligence', 'comp analysis', 'rent roll', 'financials'].map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{ padding: '8px 14px', borderRadius: '8px 8px 0 0', fontSize: 13, fontWeight: 500, border: 'none', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#111' : '#888', cursor: 'pointer', borderBottom: tab === t ? '2px solid #111' : 'none' }}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
+      <div className="uw-nav">
+        {WORKSPACE_TABS.map(t => (
+          <button key={t.key} className={tab === t.key ? 'is-on' : ''} onClick={() => setTab(t.key)}>{t.label}</button>
         ))}
       </div>
 
-      {tab === 'overview' && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Property info</div>
-                {kv('Address', pr.street)}
-                {kv('Sub-market', pr.sub_market)}
-                {kv('Type', pr.property_sub_type)}
-                {kv('Total units', pr.total_units)}
-                {kv('Building SF', pr.building_sf ? pr.building_sf.toLocaleString() + ' SF' : null)}
-                {kv('Year built', pr.year_built)}
-                {kv('Year built era', pr.year_built_era)}
-                {kv('# of buildings', pr.num_buildings)}
-                {kv('Property class', pr.property_class)}
-                {kv('Tax ID', pr.tax_id)}
-              </div>
-              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Ownership</div>
-                {kv('Owner LLC', pr.owner_llc)}
-                {kv('Contact', pr.owner_contact)}
-                {kv('Last sale date', pr.last_sale_date)}
-                {kv('Last sale price', pr.last_sale_amount ? '$' + Math.round(pr.last_sale_amount).toLocaleString() : null)}
-                {kv('Last $/unit', pr.last_sale_price_per_unit ? '$' + Math.round(pr.last_sale_price_per_unit).toLocaleString() : null)}
-                {kv('Last cap rate', pr.last_cap_rate ? pr.last_cap_rate + '%' : null)}
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Proposal</div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Stage</div>
-                  <select value={editStage} onChange={e => setEditStage(e.target.value)} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }}>
-                    {STAGES.map(s => <option key={s}>{s}</option>)}
-                  </select>
+      <div className="uw-tabbody">
+        {(tab === 'pricing' || tab === 'acquisition') && (
+          <>
+            {tab === 'pricing' && (
+              <div className="pr-card" style={{ marginBottom: 16 }}>
+                <p className="pr-card-h">Deal inputs</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+                  <div>
+                    <label className="ap-field-label">Asking price</label>
+                    <input className="ap-input" type="number" value={editAsking} onChange={e => setEditAsking(e.target.value)} onBlur={saveProposal} placeholder="e.g. 925000" />
+                  </div>
+                  <div>
+                    <label className="ap-field-label">Stated gross income</label>
+                    <input className="ap-input" type="number" value={siIncome} onChange={e => setSiIncome(e.target.value)} onBlur={e => saveSIField('stated_income', e.target.value)} placeholder="e.g. 530000" />
+                  </div>
+                  <div>
+                    <label className="ap-field-label">Stated operating expenses</label>
+                    <input className="ap-input" type="number" value={siExpenses} onChange={e => setSiExpenses(e.target.value)} onBlur={e => saveSIField('stated_expenses', e.target.value)} placeholder="e.g. 210000" />
+                  </div>
                 </div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Asking price</div>
-                  <input type="number" value={editAsking} onChange={e => setEditAsking(e.target.value)} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }} />
+                <div style={{ marginTop: 12 }}>
+                  <label className="ap-field-label">Notes</label>
+                  <textarea className="ap-input" value={editNotes} onChange={e => setEditNotes(e.target.value)} onBlur={saveProposal} placeholder="Discovery call notes…" style={{ minHeight: 60, resize: 'vertical' }} />
                 </div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Notes</div>
-                  <textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} style={{ width: '100%', minHeight: 70, padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
-                </div>
-                <button onClick={saveProposal} disabled={saving} style={{ padding: '7px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: saving ? 0.6 : 1 }}>
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-              <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-                <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Stated Income</div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Gross income</div>
-                  <input type="number" value={siIncome} onChange={e => setSiIncome(e.target.value)} onBlur={e => saveSIField('stated_income', e.target.value)} placeholder="e.g. 530000" style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, boxSizing: 'border-box' }} />
-                </div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>Operating expenses</div>
-                  <input type="number" value={siExpenses} onChange={e => setSiExpenses(e.target.value)} onBlur={e => saveSIField('stated_expenses', e.target.value)} placeholder="e.g. 210000" style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, boxSizing: 'border-box' }} />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 10px', background: '#F9F9F9', borderRadius: 8, fontSize: 12 }}>
-                  <span style={{ color: '#888' }}>Stated NOI</span>
-                  <span style={{ fontWeight: 600, color: '#111' }}>
-                    {(parseFloat(siIncome)||0) - (parseFloat(siExpenses)||0) ? '$' + Math.round((parseFloat(siIncome)||0) - (parseFloat(siExpenses)||0)).toLocaleString() : '—'}
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+                  <span style={{ fontSize: 12, color: 'var(--slate)' }}>Stated NOI: <b style={{ color: 'var(--ink)' }}>{(parseFloat(siIncome) || 0) - (parseFloat(siExpenses) || 0) ? '$' + Math.round((parseFloat(siIncome) || 0) - (parseFloat(siExpenses) || 0)).toLocaleString() : '—'}</b></span>
+                  <button className="btn btn-secondary" onClick={saveProposal} disabled={saving}>{saving ? 'Saving…' : 'Save deal'}</button>
                 </div>
               </div>
-            </div>
-          </div>
-          <PropertyDashboard proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} opModel={opModel} onOpModelRefresh={computeOpModel} onDashSaved={computeOpModel} />
-        </div>
-      )}
+            )}
+            <PropertyDashboard
+              proposal={proposal} benchStats={benchStats} benchDateRange={benchDateRange}
+              onBenchDateRangeChange={setBenchDateRange} opModel={opModel}
+              onOpModelRefresh={computeOpModel} onDashSaved={computeOpModel}
+              view={tab === 'pricing' ? 'pricing' : 'acquisition'}
+            />
+          </>
+        )}
 
-      {tab === 'due diligence' && (
-        <DueDiligence proposal={proposal} onSaved={() => { setMsg('Due diligence saved'); setTimeout(() => setMsg(''), 2000) }} />
-      )}
+        {tab === 'comp' && (
+          <CompAnalysis proposal={proposal} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} />
+        )}
 
-      {tab === 'comp analysis' && (
-        <CompAnalysis proposal={proposal} benchDateRange={benchDateRange} onBenchDateRangeChange={setBenchDateRange} />
-      )}
+        {tab === 'rent' && (
+          <RentRoll proposal={proposal} opModel={opModel} onSaved={computeOpModel} />
+        )}
 
-      {tab === 'rent roll' && (
-        <RentRoll proposal={proposal} opModel={opModel} onSaved={computeOpModel} />
-      )}
+        {tab === 'dd' && (
+          <DueDiligence proposal={proposal} onSaved={() => { setMsg('Due diligence saved'); setTimeout(() => setMsg(''), 2000) }} />
+        )}
 
-      {tab === 'financials' && (
-        <Financials proposal={proposal} opModel={opModel} opModelError={opModelError} onRecomputeOpModel={computeOpModel} />
-      )}
+        {tab === 'fin' && (
+          <Financials proposal={proposal} opModel={opModel} opModelError={opModelError} onRecomputeOpModel={computeOpModel} />
+        )}
+      </div>
     </div>
   )
 }
@@ -355,38 +342,54 @@ function DueDiligence({ proposal, onSaved }) {
     onSaved()
   }
 
+  const ddCls = c => c === 2 ? 'dd-fields c2' : c === 1 ? 'dd-fields c1' : 'dd-fields'
+
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div className="uw-pane">
+      <div className="uw-pane-head">
+        <div>
+          <h2>Due diligence</h2>
+          <p>Captured on the seller discovery call · merges into the offering memo</p>
+        </div>
+        <div className="uw-actions">
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save due diligence'}</button>
+        </div>
+      </div>
+
+      {pr.owner_contact && (
+        <div className="dd-callbar">
+          <span className="dd-callbar-l">Discovery call</span>
+          <span className="dd-callbar-v">Seller contact <b>{pr.owner_contact}</b>{pr.owner_llc ? <> · <b>{pr.owner_llc}</b></> : ''}</span>
+        </div>
+      )}
+
+      <div className="dd-grid2">
         {DD_FIELDS.map(sec => (
-          <div key={sec.l} style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem' }}>
-            <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>{sec.l}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${sec.c}, 1fr)`, gap: 10 }}>
+          <div className="dd-card" key={sec.l}>
+            <p className="dd-card-h">{sec.l}</p>
+            <div className={ddCls(sec.c)}>
               {sec.f.map(f => (
-                <div key={f.k}>
-                  <div style={{ fontSize: 11, color: '#666', marginBottom: 3 }}>{f.l}</div>
+                <div className="dd-f" key={f.k}>
+                  <label>{f.l}</label>
                   {f.t === 'yn' ? (
-                    <select value={fields[f.k] || ''} onChange={e => setFields(v => ({ ...v, [f.k]: e.target.value }))} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }}>
+                    <select value={fields[f.k] || ''} onChange={e => setFields(v => ({ ...v, [f.k]: e.target.value }))}>
                       <option value="">—</option>
                       <option>Yes</option>
                       <option>No</option>
                     </select>
                   ) : (
-                    <input value={fields[f.k] || ''} onChange={e => setFields(v => ({ ...v, [f.k]: e.target.value }))} style={{ width: '100%', padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8 }} />
+                    <input value={fields[f.k] || ''} onChange={e => setFields(v => ({ ...v, [f.k]: e.target.value }))} />
                   )}
                 </div>
               ))}
             </div>
           </div>
         ))}
+        <div className="dd-card wide">
+          <p className="dd-card-h">Due diligence notes</p>
+          <textarea className="dd-area" value={ddNotes} onChange={e => setDdNotes(e.target.value)} />
+        </div>
       </div>
-      <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid rgba(0,0,0,0.1)', padding: '1.25rem', marginTop: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', paddingBottom: 6, borderBottom: '0.5px solid rgba(0,0,0,0.08)' }}>Due diligence notes</div>
-        <textarea value={ddNotes} onChange={e => setDdNotes(e.target.value)} style={{ width: '100%', minHeight: 80, padding: '7px 10px', border: '0.5px solid #ddd', borderRadius: 8, resize: 'vertical', fontSize: 13 }} />
-      </div>
-      <button onClick={save} disabled={saving} style={{ marginTop: 12, padding: '8px 18px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, opacity: saving ? 0.6 : 1 }}>
-        {saving ? 'Saving...' : 'Save due diligence'}
-      </button>
     </div>
   )
 }
@@ -703,46 +706,52 @@ function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
     })
   }
 
-  const hdrBg = '#f5f5f5'
-  const eraBg = '#E6F1FB'
-  const cellPad = '6px 8px'
-  const borderC = '0.5px solid rgba(0,0,0,0.1)'
-  const cellStyle = (isEra) => ({ padding: cellPad, textAlign: 'right', fontSize: 12, background: isEra ? eraBg : '#fff', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' })
-  const labelCell = { padding: cellPad, fontSize: 12, fontWeight: 500, background: '#fff', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }
-  const groupCell = { padding: '8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', background: '#f9f9f9', borderBottom: borderC, borderRight: borderC }
-  const sel = { padding: '6px 8px', border: '0.5px solid #ddd', borderRadius: 6, fontSize: 12 }
+  const hdrBg = 'var(--paper)'
+  const eraBg = 'rgba(42,93,176,0.035)'   // faint blue tint for +Era columns
+  const cellPad = '8px 10px'
+  const borderC = '1px solid var(--hairline)'
+  const cellStyle = (isEra) => ({ padding: cellPad, textAlign: 'right', fontSize: 12, fontWeight: 600, color: 'var(--ink)', background: isEra ? eraBg : 'var(--surface)', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' })
+  const labelCell = { padding: cellPad, fontSize: 12, fontWeight: 500, color: 'var(--ink-2)', background: 'var(--surface)', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }
+  const groupCell = { padding: '9px 10px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--ink)', background: 'var(--paper)', borderBottom: borderC, borderRight: borderC }
+  const sel = { padding: '7px 9px', border: '1px solid var(--hairline-2)', borderRadius: 'var(--r)', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink)', background: 'var(--surface)' }
 
   const compTh = (label, col) => (
-    <th onClick={() => toggleSort(col)} style={{ padding: cellPad, borderBottom: borderC, textAlign: col === 'property_name' || col === 'sub_market' || col === '_st' || col === 'year_built_era' ? 'left' : 'right', fontWeight: 500, fontSize: 11, color: sortCol === col ? '#185FA5' : '#888', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', resize: 'horizontal', minWidth: 50 }}>
+    <th onClick={() => toggleSort(col)} style={{ padding: cellPad, borderBottom: borderC, textAlign: col === 'property_name' || col === 'sub_market' || col === '_st' || col === 'year_built_era' ? 'left' : 'right', fontWeight: 700, fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: sortCol === col ? 'var(--accent)' : 'var(--mute)', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', overflow: 'hidden', resize: 'horizontal', minWidth: 50 }}>
       {label}{sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
   )
 
-  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading comps...</div>
+  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Loading comps…</div>
 
   return (
-    <div>
+    <div className="uw-pane">
+      <div className="uw-pane-head">
+        <div>
+          <h2>Comp analysis</h2>
+          <p>Market stats matrix + comparable sales · {baseFiltered.length} comps matched</p>
+        </div>
+      </div>
       {editComp && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setEditComp(null)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: 640, maxHeight: '85vh', overflow: 'auto', padding: '24px' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Edit Comp — {editComp.property_name || editComp._sale_id}</h3>
-              <button onClick={() => setEditComp(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888' }}>×</button>
+        <div className="ap-modal-overlay" onClick={() => setEditComp(null)}>
+          <div className="ap-modal" onClick={e => e.stopPropagation()}>
+            <div className="ap-modal-head">
+              <h3 className="ap-modal-title">Edit comp — {editComp.property_name || editComp._sale_id}</h3>
+              <button className="ap-modal-close" onClick={() => setEditComp(null)}>×</button>
             </div>
             {EDIT_FIELDS.map(section => (
               <div key={section.section} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>{section.section}</div>
+                <div className="ap-field-section">{section.section}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   {section.fields.map(f => (
                     <div key={f.key} style={f.type === 'checkbox' ? { display: 'flex', alignItems: 'center', gap: 6 } : {}}>
                       {f.type === 'checkbox' ? (
-                        <><input type="checkbox" checked={!!editComp[f.key]} onChange={e => updateEditField(f.key, e.target.checked)} /><label style={{ fontSize: 12, color: '#555' }}>{f.label}</label></>
+                        <><input type="checkbox" checked={!!editComp[f.key]} onChange={e => updateEditField(f.key, e.target.checked)} /><label style={{ fontSize: 12, color: 'var(--slate)' }}>{f.label}</label></>
                       ) : (
-                        <><label style={{ fontSize: 11, color: '#888', display: 'block', marginBottom: 2 }}>{f.label}</label>
+                        <><label className="ap-field-label">{f.label}</label>
                         {f.type === 'select' ? (
-                          <select value={editComp[f.key] || ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle}><option value="">—</option>{f.options.map(o => <option key={o} value={o}>{o}</option>)}</select>
+                          <select className="ap-input" value={editComp[f.key] || ''} onChange={e => updateEditField(f.key, e.target.value)}><option value="">—</option>{f.options.map(o => <option key={o} value={o}>{o}</option>)}</select>
                         ) : (
-                          <input type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'} value={editComp[f.key] ?? ''} onChange={e => updateEditField(f.key, e.target.value)} style={editInputStyle} />
+                          <input className="ap-input" type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'} value={editComp[f.key] ?? ''} onChange={e => updateEditField(f.key, e.target.value)} />
                         )}</>
                       )}
                     </div>
@@ -750,9 +759,9 @@ function CompAnalysis({ proposal, benchDateRange, onBenchDateRangeChange }) {
                 </div>
               </div>
             ))}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
-              <button onClick={() => setEditComp(null)} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={saveEdit} style={{ padding: '8px 20px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Save</button>
+            <div className="ap-modal-foot">
+              <button className="btn btn-secondary" onClick={() => setEditComp(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEdit}>Save</button>
             </div>
           </div>
         </div>

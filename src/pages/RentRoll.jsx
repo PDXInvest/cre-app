@@ -12,8 +12,33 @@ const UNIT_TYPES = [
 const LEASE_TYPES = ['Fixed Term', 'M to M']
 const UNIT_STATUSES = ['Current', 'Vacant', 'Notice', 'Down']
 
-const borderC = '0.5px solid rgba(0,0,0,0.1)'
-const cellPad = '4px 6px'
+// Explicit column widths (px) sized to each field's data density; null = flex (Notes).
+// table-layout:fixed honors these and the table min-width forces x-scroll.
+const RR_COL_W = [
+  32,   // #
+  60,   // Unit #
+  110,  // Type (dropdown)
+  70,   // SF
+  140,  // Tenant
+  90,   // Status (dropdown)
+  80,   // Rent
+  70,   // RUBS
+  70,   // Recurring
+  95,   // Eff date
+  95,   // Move-in
+  95,   // Lease end
+  100,  // Lease type (dropdown)
+  80,   // Deposit
+  70,   // Pre-paid
+  85,   // Market rent
+  75,   // Mkt RUBS
+  80,   // UW rent (computed)
+  75,   // UW RUBS (computed)
+  70,   // Stab mo (computed)
+  null, // Notes (flex)
+  34,   // remove
+]
+const RR_MIN_W = RR_COL_W.reduce((s, w) => s + (w || 160), 0) // Notes floor 160
 
 function fmt$(v) { return v ? '$' + Math.round(Number(v)).toLocaleString() : '—' }
 
@@ -108,7 +133,6 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
   const totalMarketRent = units.reduce((s, u) => s + (Number(u.market_rent) || 0), 0)
   const totalRubs = units.reduce((s, u) => s + (Number(u.current_rubs) || 0), 0)
   const totalUwRent = units.reduce((s, u) => s + uwRent(u), 0)
-  const totalUwRubs = units.reduce((s, u) => s + uwRubs(u), 0)
   const avgRent = totalUnits ? totalActualRent / totalUnits : 0
   const occupancy = totalUnits ? (occupied / totalUnits * 100).toFixed(1) : 0
 
@@ -129,21 +153,17 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
       })
     : units.map((u, i) => ({ ...u, _idx: i }))
 
-  const inp = (idx, field, type = 'text', style = {}) => (
+  const inp = (idx, field, type = 'text', left = false) => (
     <input
       type={type}
+      className={`rr-in ${left ? 'l' : ''}`}
       value={units[idx][field] ?? ''}
       onChange={e => updateUnit(idx, field, type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)}
-      style={{ width: '100%', padding: '3px 5px', border: '0.5px solid #e0e0e0', borderRadius: 4, fontSize: 11, background: 'transparent', ...style }}
     />
   )
 
   const sel = (idx, field, options) => (
-    <select
-      value={units[idx][field] || ''}
-      onChange={e => updateUnit(idx, field, e.target.value)}
-      style={{ width: '100%', padding: '3px 4px', border: '0.5px solid #e0e0e0', borderRadius: 4, fontSize: 11, background: 'transparent' }}
-    >
+    <select className="rr-sel" value={units[idx][field] || ''} onChange={e => updateUnit(idx, field, e.target.value)}>
       <option value="">—</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
@@ -152,55 +172,54 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
   const dateInp = (idx, field) => (
     <input
       type="date"
+      className="rr-in l"
       value={units[idx][field] ? units[idx][field].slice(0, 10) : ''}
       onChange={e => updateUnit(idx, field, e.target.value || null)}
-      style={{ width: '100%', padding: '3px 4px', border: '0.5px solid #e0e0e0', borderRadius: 4, fontSize: 10, background: 'transparent' }}
     />
   )
 
-  const th = (label, col, w) => (
-    <th
-      onClick={() => toggleSort(col)}
-      style={{ padding: cellPad, borderBottom: borderC, fontSize: 10, fontWeight: 600, color: sortCol === col ? '#185FA5' : '#888', textAlign: 'left', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', minWidth: w || 60 }}
-    >
+  const th = (label, col) => (
+    <th onClick={() => toggleSort(col)} className={sortCol === col ? 'is-sort' : ''}>
       {label}{sortCol === col ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
   )
 
-  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading rent roll...</div>
+  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Loading rent roll…</div>
 
   return (
-    <div>
-      {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 8, marginBottom: 12 }}>
+    <div className="uw-pane">
+      <div className="uw-pane-head">
+        <div>
+          <h2>Rent roll</h2>
+          <p>{totalUnits} units · {occupancy}% occupied · in-place rent vs. underwritten market</p>
+        </div>
+        <div className="uw-actions">
+          <button className="btn btn-primary" onClick={addUnit}>+ Add unit</button>
+          <button className="btn btn-secondary" onClick={saveAll} disabled={saving}>{saving ? 'Saving…' : 'Save rent roll'}</button>
+          <PdfImportButton type="rent_roll" onExtracted={setPdfData} onError={e => { setMsg(e); setTimeout(() => setMsg(''), 5000) }} />
+        </div>
+      </div>
+
+      <div className="rr-kpis">
         {[
-          { l: 'Total Units', v: totalUnits },
+          { l: 'Total units', v: totalUnits },
           { l: 'Occupied', v: occupied },
           { l: 'Vacant', v: vacant },
           { l: 'Occupancy', v: occupancy + '%' },
-          { l: 'Avg Rent', v: fmt$(avgRent) },
-          { l: 'Total Rent', v: fmt$(totalActualRent) },
+          { l: 'Avg rent', v: fmt$(avgRent) },
+          { l: 'Total rent', v: fmt$(totalActualRent) },
           { l: 'Total RUBS', v: fmt$(totalRubs) },
-          { l: 'Total Market', v: fmt$(totalMarketRent) },
-          { l: 'Total UW Rent', v: fmt$(totalUwRent) },
+          { l: 'Total market', v: fmt$(totalMarketRent) },
+          { l: 'Total UW rent', v: fmt$(totalUwRent), pos: true },
         ].map(s => (
-          <div key={s.l} style={{ background: '#fff', borderRadius: 8, padding: '8px 10px', border: borderC }}>
-            <div style={{ fontSize: 10, color: '#888', marginBottom: 2 }}>{s.l}</div>
-            <div style={{ fontSize: 16, fontWeight: 500 }}>{s.v}</div>
+          <div className="rr-kpi" key={s.l}>
+            <p className="rr-kpi-l">{s.l}</p>
+            <p className={`rr-kpi-v ${s.pos ? 'pos' : ''}`}>{s.v}</p>
           </div>
         ))}
       </div>
 
-      {msg && <div style={{ padding: '6px 12px', background: '#EAF3DE', color: '#27500A', borderRadius: 8, fontSize: 12, marginBottom: 8 }}>{msg}</div>}
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <button onClick={addUnit} style={{ padding: '6px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, fontSize: 12 }}>+ Add Unit</button>
-        <button onClick={saveAll} disabled={saving} style={{ padding: '6px 14px', background: '#fff', border: borderC, borderRadius: 8, fontWeight: 500, fontSize: 12, opacity: saving ? 0.6 : 1 }}>
-          {saving ? 'Saving...' : 'Save Rent Roll'}
-        </button>
-        <PdfImportButton type="rent_roll" onExtracted={setPdfData} onError={e => { setMsg(e); setTimeout(() => setMsg(''), 5000) }} />
-      </div>
+      {msg && <div style={{ padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--pos)', borderRadius: 'var(--r)', fontSize: 12, marginBottom: 12 }}>{msg}</div>}
 
       {pdfData && (
         <PdfPreviewRentRoll data={pdfData} onCancel={() => setPdfData(null)} onConfirm={imported => {
@@ -210,87 +229,83 @@ export default function RentRoll({ proposal, opModel, onSaved }) {
           const parts = []
           if (matchedCount) parts.push(`${matchedCount} units updated`)
           if (appendedCount) parts.push(`${appendedCount} new units added`)
-          setMsg(`${parts.join(', ')} — click "Save Rent Roll" to persist`)
+          setMsg(`${parts.join(', ')} — click "Save rent roll" to persist`)
           setTimeout(() => setMsg(''), 8000)
         }} />
       )}
 
-      {/* Rent roll table */}
-      <div style={{ background: '#fff', borderRadius: 12, border: borderC, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, minWidth: 1600 }}>
+      <div className="rr-tablewrap">
+        <table className="rr-table" style={{ minWidth: RR_MIN_W }}>
+          <colgroup>
+            {RR_COL_W.map((w, ci) => <col key={ci} style={w ? { width: w } : undefined} />)}
+          </colgroup>
           <thead>
-            <tr style={{ background: '#f5f5f5' }}>
-              <th style={{ padding: cellPad, borderBottom: borderC, width: 30, fontSize: 10, color: '#888' }}>#</th>
-              {th('Unit #', 'unit_number', 70)}
-              {th('Unit Type', 'unit_type', 100)}
-              {th('SF', 'unit_sf', 50)}
-              {th('Tenant', 'tenant_name', 100)}
-              {th('Status', 'status', 70)}
-              {th('Rent', 'actual_rent', 65)}
-              {th('RUBS', 'current_rubs', 55)}
-              {th('Recurring', 'recurring_charges', 60)}
-              {th('Eff. Date', 'effective_rent_date', 95)}
-              {th('Move In', 'move_in_date', 95)}
-              {th('Lease End', 'lease_end_date', 95)}
-              {th('Lease Type', 'lease_type', 80)}
-              {th('Deposit', 'security_deposit', 60)}
-              {th('Pre-Paid', 'pre_paid_rent', 55)}
-              {th('Market Rent', 'market_rent', 70)}
-              {th('Mkt RUBS', 'market_rubs', 55)}
-              {th('UW Rent', '_uwRent', 65)}
-              {th('UW RUBS', '_uwRubs', 55)}
-              {th('Stab Mo', 'stabilized_month', 50)}
-              {th('Notes', 'notes', 80)}
-              <th style={{ padding: cellPad, borderBottom: borderC, width: 30 }}></th>
+            <tr>
+              <th>#</th>
+              {th('Unit #', 'unit_number')}
+              {th('Unit type', 'unit_type')}
+              {th('SF', 'unit_sf')}
+              {th('Tenant', 'tenant_name')}
+              {th('Status', 'status')}
+              {th('Rent', 'actual_rent')}
+              {th('RUBS', 'current_rubs')}
+              {th('Recurring', 'recurring_charges')}
+              {th('Eff. date', 'effective_rent_date')}
+              {th('Move-in', 'move_in_date')}
+              {th('Lease end', 'lease_end_date')}
+              {th('Lease type', 'lease_type')}
+              {th('Deposit', 'security_deposit')}
+              {th('Pre-paid', 'pre_paid_rent')}
+              {th('Market rent', 'market_rent')}
+              {th('Mkt RUBS', 'market_rubs')}
+              {th('UW rent', '_uwRent')}
+              {th('UW RUBS', '_uwRubs')}
+              {th('Stab mo', 'stabilized_month')}
+              {th('Notes', 'notes')}
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {displayUnits.length === 0 && (
-              <tr><td colSpan={22} style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>No units yet. Click "+ Add Unit" to start building the rent roll.</td></tr>
+              <tr><td colSpan={22} style={{ padding: '2rem', textAlign: 'center', color: 'var(--mute)' }}>No units yet. Click "+ Add unit" to start building the rent roll.</td></tr>
             )}
             {displayUnits.map((u, di) => {
               const i = u._idx // original index for editing
-              const rowBg = u.status === 'Vacant' ? '#FFF8F0' : di % 2 === 0 ? '#fff' : '#fafafa'
               return (
-                <tr key={di} style={{ background: rowBg }}>
-                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center', fontSize: 10, color: '#aaa' }}>{di + 1}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'unit_number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{sel(i, 'unit_type', UNIT_TYPES)}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'unit_sf', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'tenant_name')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{sel(i, 'status', UNIT_STATUSES)}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'actual_rent', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'current_rubs', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'recurring_charges', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{dateInp(i, 'effective_rent_date')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{dateInp(i, 'move_in_date')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{dateInp(i, 'lease_end_date')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{sel(i, 'lease_type', LEASE_TYPES)}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'security_deposit', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'pre_paid_rent', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'market_rent', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'market_rubs', 'number')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right', background: '#E1F5EE', fontSize: 11 }}>{fmt$(uwRent(units[i]))}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'right', background: '#E1F5EE', fontSize: 11 }}>{fmt$(uwRubs(units[i]))}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>
+                <tr key={di} className={u.status === 'Vacant' ? 'is-vacant' : ''}>
+                  <td className="idx">{di + 1}</td>
+                  <td>{inp(i, 'unit_number', 'text', true)}</td>
+                  <td>{sel(i, 'unit_type', UNIT_TYPES)}</td>
+                  <td>{inp(i, 'unit_sf', 'number')}</td>
+                  <td>{inp(i, 'tenant_name', 'text', true)}</td>
+                  <td>{sel(i, 'status', UNIT_STATUSES)}</td>
+                  <td>{inp(i, 'actual_rent', 'number')}</td>
+                  <td>{inp(i, 'current_rubs', 'number')}</td>
+                  <td>{inp(i, 'recurring_charges', 'number')}</td>
+                  <td>{dateInp(i, 'effective_rent_date')}</td>
+                  <td>{dateInp(i, 'move_in_date')}</td>
+                  <td>{dateInp(i, 'lease_end_date')}</td>
+                  <td>{sel(i, 'lease_type', LEASE_TYPES)}</td>
+                  <td>{inp(i, 'security_deposit', 'number')}</td>
+                  <td>{inp(i, 'pre_paid_rent', 'number')}</td>
+                  <td>{inp(i, 'market_rent', 'number')}</td>
+                  <td>{inp(i, 'market_rubs', 'number')}</td>
+                  <td className="rr-uw">{fmt$(uwRent(units[i]))}</td>
+                  <td className="rr-uw">{fmt$(uwRubs(units[i]))}</td>
+                  <td style={{ textAlign: 'right' }}>
                     {(() => {
                       // Look up by _idx which equals sort_order — stable even after save reinserts
                       const computed = opModel?.unitStabMap?.[u._idx]
                       if (computed !== null && computed !== undefined) {
                         const label = computed === 0 ? 'At close' : `Mo ${computed}`
-                        return (
-                          <div style={{ textAlign: 'right', fontSize: 11 }}>
-                            <span style={{ fontWeight: 600, color: '#27500A' }}>{label}</span>
-                            <span style={{ color: '#aaa', fontSize: 10, marginLeft: 2 }}>auto</span>
-                          </div>
-                        )
+                        return <span style={{ color: 'var(--pos)', fontWeight: 600 }}>{label}<span style={{ color: 'var(--mute)', fontSize: 10, marginLeft: 3 }}>auto</span></span>
                       }
                       return inp(i, 'stabilized_month', 'number')
                     })()}
                   </td>
-                  <td style={{ padding: cellPad, borderBottom: borderC }}>{inp(i, 'notes')}</td>
-                  <td style={{ padding: cellPad, borderBottom: borderC, textAlign: 'center' }}>
-                    <button onClick={() => removeUnit(i)} style={{ background: 'none', border: 'none', color: '#c00', cursor: 'pointer', fontSize: 14, padding: 0 }} title="Remove unit">×</button>
+                  <td>{inp(i, 'notes', 'text', true)}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <button className="rr-rm" onClick={() => removeUnit(i)} title="Remove unit">×</button>
                   </td>
                 </tr>
               )

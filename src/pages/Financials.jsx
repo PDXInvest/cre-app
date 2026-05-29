@@ -187,8 +187,8 @@ const GROWTH_ASSUMPTIONS = [
    ═══════════════════════════════════════════════════ */
 function currentYears() { const y = new Date().getFullYear(); return [y - 3, y - 2, y - 1] }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const borderC = '0.5px solid rgba(0,0,0,0.1)'
-const cellPad = '5px 8px'
+const borderC = '1px solid var(--hairline)'
+const cellPad = '6px 9px'
 const fmt$ = v => { const n = Number(v); return isNaN(n) || n === 0 ? '—' : (n < 0 ? '-$' + Math.abs(Math.round(n)).toLocaleString() : '$' + Math.round(n).toLocaleString()) }
 
 /* ═══════════════════════════════════════════════════
@@ -502,12 +502,12 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
 
   /* ── Styles ── */
   const projBg = '#EEEDFE', t12Bg = '#E6F1FB'
-  const hdrStyle = { padding: cellPad, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#666', background: '#f9f9f9', borderBottom: borderC, borderRight: borderC }
-  const labelStyle = { padding: cellPad, fontSize: 12, fontWeight: 500, background: '#fff', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }
-  const totalLabelStyle = { ...labelStyle, fontWeight: 600, background: '#f5f5f5' }
+  const hdrStyle = { padding: cellPad, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--mute)', background: 'var(--paper)', borderBottom: borderC, borderRight: borderC }
+  const labelStyle = { padding: cellPad, fontSize: 12, fontWeight: 500, color: 'var(--ink-2)', background: 'var(--surface)', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' }
+  const totalLabelStyle = { ...labelStyle, fontWeight: 700, color: 'var(--ink)', background: 'var(--paper)' }
   const totalCellStyle = (p) => ({ padding: cellPad, fontSize: 12, fontWeight: 600, textAlign: 'right', background: isT12(p) ? t12Bg : isProj(p) ? projBg : '#f5f5f5', borderBottom: borderC, borderRight: borderC, whiteSpace: 'nowrap' })
   const numInput = { width: '100%', padding: '4px 6px', border: '0.5px solid #e0e0e0', borderRadius: 4, fontSize: 12, textAlign: 'right', background: 'transparent' }
-  const tabBtn = (active) => ({ padding: '6px 14px', fontSize: 12, fontWeight: 500, border: 'none', borderRadius: '6px 6px 0 0', cursor: 'pointer', background: active ? '#fff' : 'transparent', color: active ? '#111' : '#888', borderBottom: active ? '2px solid #111' : 'none' })
+  const tabBtn = (active) => ({ padding: '10px 12px', fontSize: 13, fontWeight: active ? 600 : 500, fontFamily: 'inherit', border: 'none', background: 'none', cursor: 'pointer', color: active ? 'var(--ink)' : 'var(--slate)', borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent' })
   const inputCell = (p) => ({ padding: '2px 4px', borderBottom: borderC, borderRight: borderC, background: isProj(p) ? '#F8F7FF' : 'transparent', minWidth: 100 })
   const mInputCell = { padding: '2px 3px', borderBottom: borderC, borderRight: borderC, minWidth: 72 }
   const mNumInput = { ...numInput, fontSize: 11, padding: '3px 4px' }
@@ -616,21 +616,21 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
     ]
   }
 
-  if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: '#888' }}>Loading financials...</div>
+  if (loading) return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mute)' }}>Loading financials…</div>
 
   return (
-    <div>
-      {msg && <div style={{ padding: '6px 12px', background: '#EAF3DE', color: '#27500A', borderRadius: 8, fontSize: 12, marginBottom: 8 }}>{msg}</div>}
+    <div className="uw-pane">
+      {msg && <div style={{ padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--hairline)', color: 'var(--pos)', borderRadius: 'var(--r)', fontSize: 12, marginBottom: 10 }}>{msg}</div>}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', gap: 2, borderBottom: borderC }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16, gap: 16, borderBottom: borderC }}>
+        <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => setSection('annual')} style={tabBtn(section === 'annual')}>Income Statement</button>
           <button onClick={() => setSection('monthly')} style={tabBtn(section === 'monthly')}>T-12 Monthly Detail</button>
           <button onClick={() => setSection('assumptions')} style={tabBtn(section === 'assumptions')}>Growth Assumptions</button>
           <button onClick={() => setSection('opmodel')} style={tabBtn(section === 'opmodel')}>Operating Model</button>
         </div>
-        <button onClick={save} disabled={saving} style={{ padding: '6px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 500, fontSize: 12, opacity: saving ? 0.6 : 1 }}>
-          {saving ? 'Saving...' : 'Save Financials'}
+        <button className="btn btn-primary" onClick={save} disabled={saving} style={{ marginBottom: 6 }}>
+          {saving ? 'Saving…' : 'Save financials'}
         </button>
       </div>
 

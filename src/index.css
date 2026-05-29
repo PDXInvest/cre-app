@@ -1,11 +1,48 @@
+/* ---------- DESIGN TOKENS (Method Multifamily) ---------- */
+:root {
+  --accent:    #A51123;   /* burgundy — used sparingly */
+  --accent-2:  #C3243A;   /* hover */
+  --red:       #E20A24;
+  --ink:       #15161A;
+  --ink-2:     #2A2C33;
+  --slate:     #5A5E68;
+  --mute:      #9CA0AB;
+  --mute-2:    #BFC2CA;
+  --paper:     #FAFAF5;
+  --surface:   #FFFFFF;
+  --hairline:  #E8E6DF;
+  --hairline-2:#D8D6CC;
+  --tint:      #F4E6E8;
+  --pos:       #1F7A3F;
+  --warn:      #B8841F;
+  --neg:       #9F2A1C;
+  --info:      #2A5DB0;
+
+  /* editable affordance — any user-entered value is tinted amber; computed values are plain */
+  --amber-fill:   #FBF6E9;
+  --amber-border: #E8DCBE;
+
+  --r-sm: 4px;
+  --r:    6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+
+  --sans:  "Montserrat", "Futura", "Helvetica Neue", system-ui, sans-serif;
+  --serif: "DM Serif Display", Georgia, serif;
+  --mono:  "Montserrat", "Futura", system-ui, sans-serif;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body, #root { height: 100%; }
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--sans);
   font-size: 14px;
-  color: #111;
-  background: #f5f5f3;
-  min-height: 100vh;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button {

@@ -23,12 +23,8 @@ export default function PdfImportButton({ type, onExtracted, onError }) {
   return (
     <>
       <input ref={fileRef} type="file" accept=".pdf,application/pdf" onChange={handleFile} style={{ display: 'none' }} />
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={extracting}
-        style={{ padding: '6px 14px', background: '#fff', border: '0.5px solid #ddd', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: extracting ? 'not-allowed' : 'pointer', opacity: extracting ? 0.6 : 1 }}
-      >
-        {extracting ? 'Extracting...' : 'Import from PDF'}
+      <button className="btn-pdf" onClick={() => fileRef.current?.click()} disabled={extracting}>
+        {extracting ? 'Extracting…' : '⇪ Import from PDF'}
       </button>
     </>
   )
