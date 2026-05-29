@@ -70,6 +70,8 @@ const fmtP  = v => { const x=nv(v); if(!x) return '—'; return (x*100).toFixed(
 const fmtN  = v => { const x=nv(v); if(!x) return '—'; return x.toFixed(2) }
 const fmtX  = v => { const x=nv(v); if(!x) return '—'; return x.toFixed(2)+'x' }
 const dc    = v => !v||isNaN(v)?'#888':v>=1.25?'#27500A':v>=1.0?'#633806':'#791F1F'
+// DSCR → token class (mirrors dc() thresholds; presentational only)
+const dscrCls = v => (!v||isNaN(v)) ? '' : v>=1.25 ? 'ok' : v>=1.0 ? 'warn' : 'bad'
 
 // Parse a sale date string in any common format → timestamp (ms), or null
 function parseSaleDate(str) {
@@ -101,20 +103,20 @@ function geoStats(comps) {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const card = { background:'#fff', borderRadius:12, border:'0.5px solid rgba(0,0,0,0.1)', padding:'1.25rem', marginBottom:16 }
-const sHdr = { fontSize:11, fontWeight:500, color:'#888', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:'0.75rem', paddingBottom:6, borderBottom:'0.5px solid rgba(0,0,0,0.08)' }
-const inp  = { width:'100%', padding:'7px 10px', border:'0.5px solid #ddd', borderRadius:8, fontSize:12, boxSizing:'border-box', background:'#fff' }
-const ro   = { padding:'7px 10px', border:'0.5px solid #eee', borderRadius:8, fontSize:12, background:'#f9f9f9', color:'#111', minHeight:34 }
-// Required field style — amber highlight when no value saved
-const reqInp = (val) => val != null && val !== '' && val !== 0
-  ? inp
-  : { ...inp, border:'0.5px solid #F59E0B', background:'#FFFBEB' }
+// Class-based styling (token reskin). Amber = editable, plain = computed.
+const card = 'uw-card'
+const sHdr = 'uw-card-head'
+const inp  = 'uw-input'
+const ro   = 'uw-ro'
+// Required field className — amber base, warn border when empty (unchanged logic)
+const reqInp = (val) => (val != null && val !== '' && val !== 0) ? 'uw-input' : 'uw-input is-empty'
 
 function KV({ label, value, bold, color }) {
+  const empty = !value || value === '—'
   return (
-    <div style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}>
-      <span style={{ color:'#888', fontSize:12 }}>{label}</span>
-      <span style={{ fontWeight:bold?600:400, fontSize:12, color:color||((value&&value!=='—')?'#111':'#ccc') }}>{value||'—'}</span>
+    <div className="uw-kv">
+      <span className="uw-kv-l">{label}</span>
+      <span className="uw-kv-v" style={{ ...(bold ? { fontWeight: 700 } : {}), ...(color ? { color } : empty ? { color: 'var(--mute-2)' } : {}) }}>{value || '—'}</span>
     </div>
   )
 }
@@ -515,26 +517,18 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   function addRow(key)       { setDash(p => ({ ...p, [key]:[...(p[key]||[]), blankRow()] })) }
   function removeRow(key,i)  { setDash(p => ({ ...p, [key]:(p[key]||[]).filter((_,j)=>j!==i) })) }
 
-  if (loading) return <div style={{ padding:'3rem', textAlign:'center', color:'#888', fontSize:13 }}>Loading dashboard...</div>
-
-  const TH = (a='right') => ({ padding:'6px 8px', color:'#888', fontWeight:500, fontSize:11, textAlign:a, whiteSpace:'nowrap', borderBottom:'0.5px solid rgba(0,0,0,0.12)' })
-
-  // Benchmark geo row helper
-  function BenchCell({ stats, fmt }) {
-    if (!stats || fmt(stats) === '—') return <td style={{ padding:'6px 10px', textAlign:'right', color:'#ccc', fontSize:12 }}>—</td>
-    return <td style={{ padding:'6px 10px', textAlign:'right', fontSize:12 }}>{fmt(stats)}</td>
-  }
+  if (loading) return <div style={{ padding:'3rem', textAlign:'center', color:'var(--mute)', fontSize:13 }}>Loading dashboard…</div>
 
   return (
     <div>
-      {msg && <div style={{ padding:'6px 12px', background:'#EAF3DE', color:'#27500A', borderRadius:8, fontSize:12, marginBottom:12 }}>{msg}</div>}
+      {msg && <div className="uw-msg">{msg}</div>}
 
       {showPricing && (<>
       {/* ═══ MARKET BENCHMARKS ════════════════════════════════════════════ */}
-      <div style={card}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', ...sHdr }}>
+      <div className={card}>
+        <div className="uw-card-head">
           <span>Market Benchmarks {pr.year_built_era ? `— ${pr.year_built_era}` : ''}</span>
-          <div style={{ fontSize:11, color:'#888', fontWeight:400, textTransform:'none', letterSpacing:0 }}>
+          <div className="uw-head-note">
             {benchDateRange >= 99999 ? 'All time'
               : benchDateRange >= 730 ? 'Last 2 years'
               : benchDateRange >= 365 ? 'Last 1 year'
@@ -545,22 +539,22 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
           </div>
         </div>
         {!benchData.hasAny
-          ? <div style={{ fontSize:12, color:'#bbb' }}>No sold comp data available — check Comp Analysis tab filters.</div>
-          : <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+          ? <div className="uw-empty">No sold comp data available — check Comp Analysis tab filters.</div>
+          : <table className="uw-table">
               <thead>
                 <tr>
-                  <th style={TH('left')}>Metric</th>
+                  <th className="l">Metric</th>
                   {benchData.cols.map(col => (
-                    <th key={col.label} style={TH()}>{col.label}</th>
+                    <th key={col.label}>{col.label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {/* Sold count */}
-                <tr style={{ borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}>
-                  <td style={{ padding:'6px 8px', color:'#888', fontSize:12 }}>Sold count</td>
+                <tr>
+                  <td className="lbl">Sold count</td>
                   {benchData.cols.map(col => (
-                    <td key={col.label} style={{ padding:'6px 10px', textAlign:'right', fontSize:12, color: col.stats ? '#111' : '#ccc' }}>
+                    <td key={col.label} className={col.stats ? '' : 'dim'}>
                       {col.stats ? col.stats.count : '—'}
                     </td>
                   ))}
@@ -571,10 +565,10 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
                   { label:'Cap Rate',  fmt: s => s.capRate  ? fmtP(s.capRate)                    : '—' },
                   { label:'GRM',       fmt: s => s.grm      ? fmtN(s.grm)                      : '—' },
                 ].map(({ label, fmt }) => (
-                  <tr key={label} style={{ borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}>
-                    <td style={{ padding:'6px 8px', color:'#555' }}>{label}</td>
+                  <tr key={label}>
+                    <td className="lbl">{label}</td>
                     {benchData.cols.map(col => (
-                      <td key={col.label} style={{ padding:'6px 10px', textAlign:'right', fontSize:12, color:col.stats?'#111':'#ccc' }}>
+                      <td key={col.label} className={col.stats ? 'fig' : 'dim'}>
                         {col.stats ? fmt(col.stats) : '—'}
                       </td>
                     ))}
@@ -586,209 +580,207 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
       </div>
 
       {/* ═══ VALUATION SCENARIOS ═════════════════════════════════════════ */}
-      <div style={card}>
-        <div style={{ ...sHdr, marginBottom:12 }}>Valuation Scenarios</div>
+      <div className={card}>
+        <div className={sHdr}>Valuation Scenarios</div>
 
-        {/* Income source inline row */}
-        <div style={{ display:'grid', gridTemplateColumns:'1.5fr 1fr 1fr 1fr', gap:12, alignItems:'center', padding:'12px 14px', background:'#F8F8F8', borderRadius:8, marginBottom:16 }}>
+        {/* Income source inline row (amber = editable source) */}
+        <div className="uw-incomerow">
           <div>
-            <div style={{ fontSize:10, color:'#999', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:4 }}>Income Source</div>
-            <select value={incSrc} onChange={e=>handleIncomeSourceChange(e.target.value)}
-              style={{ width:'100%', padding:'8px 10px', border:'0.5px solid #ddd', borderRadius:8, fontSize:13, fontWeight:500 }}>
+            <div className="uw-income-l">Income Source</div>
+            <select value={incSrc} onChange={e=>handleIncomeSourceChange(e.target.value)} className="uw-income-select">
               {INCOME_SOURCES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
-          {[{ label:'Gross Income',val:srcGross },{ label:'Op Ex',val:srcExp },{ label:'NOI',val:srcNOI,bold:true,color:srcNOI>0?'#27500A':'#791F1F' }].map(({ label,val,bold,color }) => (
+          {[{ label:'Gross Income',val:srcGross },{ label:'Op Ex',val:srcExp },{ label:'NOI',val:srcNOI,bold:true,color:srcNOI>0?'var(--pos)':'var(--neg)' }].map(({ label,val,bold,color }) => (
             <div key={label}>
-              <div style={{ fontSize:10, color:'#999', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:4 }}>{label}</div>
-              <div style={{ fontSize:16, fontWeight:bold?600:500, color:color||'#111' }}>{fmtC(val)}</div>
+              <div className="uw-income-l">{label}</div>
+              <div className="uw-income-v" style={color ? { color } : undefined}>{fmtC(val)}</div>
             </div>
           ))}
         </div>
 
         {/* Pricing targets */}
         <div style={{ overflowX:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
-            <thead><tr>{['Scenario','Target','Price','$/Unit','$/SF','Cap Rate','GRM','DSCR'].map((h,i) => <th key={h} style={TH(i===0?'left':'right')}>{h}</th>)}</tr></thead>
+          <table className="uw-table">
+            <thead><tr>{['Scenario','Target','Price','$/Unit','$/SF','Cap Rate','GRM','DSCR'].map((h,i) => <th key={h} className={i===0?'l':''}>{h}</th>)}</tr></thead>
             <tbody>
               {pricingRows.map(row => {
                 const c = pricingCalc(row.price)
                 const isSelected = priceSourceKey === row.key
                 return (
-                  <tr key={row.key} style={{ borderBottom:'0.5px solid rgba(0,0,0,0.06)', background:isSelected?'#EAF3DE':row.isFixed?'#F8F7FF':'transparent' }}>
-                    <td style={{ padding:'7px 8px', fontWeight:row.isFixed?600:400, color:'#111', whiteSpace:'nowrap' }}>{row.label}</td>
-                    <td style={{ padding:'4px 8px', textAlign:'right' }}>
+                  <tr key={row.key} className={(isSelected || row.isFixed) ? 'uw-table-asking' : ''}>
+                    <td className="l">{row.label}</td>
+                    <td>
                       {row.isFixed
-                        ? <span style={{ color:'#555' }}>{fmtC(askPrice)}</span>
+                        ? <span className="uw-muted">{fmtC(askPrice)}</span>
                         : <input type="number" value={row.val||''} onChange={e=>setPT(row.key,e.target.value)}
-                            placeholder={row.pct?'0.00':row.dol?'0':'0.00'}
-                            style={{ width:100, padding:'4px 6px', border:'0.5px solid #ddd', borderRadius:6, fontSize:12, textAlign:'right', background:'#FAFAFA' }}/>
+                            placeholder={row.pct?'0.00':row.dol?'0':'0.00'} className="uw-target-input"/>
                       }
                     </td>
-                    <td style={{ padding:'7px 8px', textAlign:'right', fontWeight:500 }}>{fmtC(c.price)}</td>
-                    <td style={{ padding:'7px 8px', textAlign:'right', color:'#555' }}>{fmtC(c.perUnit)}</td>
-                    <td style={{ padding:'7px 8px', textAlign:'right', color:'#555' }}>{c.perSF?'$'+Math.round(c.perSF).toLocaleString():'—'}</td>
-                    <td style={{ padding:'7px 8px', textAlign:'right', color:'#555' }}>{fmtP(c.cap)}</td>
-                    <td style={{ padding:'7px 8px', textAlign:'right', color:'#555' }}>{fmtN(c.grm)}</td>
-                    <td style={{ padding:'7px 8px', textAlign:'right', fontWeight:500, color:dc(c.dscr) }}>{fmtN(c.dscr)}</td>
+                    <td className="fig">{fmtC(c.price)}</td>
+                    <td className="lbl">{fmtC(c.perUnit)}</td>
+                    <td className="lbl">{c.perSF?'$'+Math.round(c.perSF).toLocaleString():'—'}</td>
+                    <td className="lbl">{fmtP(c.cap)}</td>
+                    <td className="lbl">{fmtN(c.grm)}</td>
+                    <td className={`uw-dscr ${dscrCls(c.dscr)}`}>{fmtN(c.dscr)}</td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize:10, color:'#bbb', marginTop:6 }}>* Target: Return % = cash-on-cash back-calculation. Full IRR available after operating model is built.</div>
+        <div className="uw-note">* Target: Return % = cash-on-cash back-calculation. Full IRR available after operating model is built.</div>
       </div>
       </>)}
 
       {showAcq && (<>
       {/* ═══ ACQUISITION DETAILS ════════════════════════════════════════ */}
-      <div style={card}>
-        <div style={sHdr}>Acquisition Details</div>
-        <div style={{ display:'grid', gridTemplateColumns:'200px 1fr 1fr', gap:'0 16px', fontSize:12, alignItems:'center' }}>
+      <div className={card}>
+        <div className={sHdr}>Acquisition Details</div>
+        <div className="acq-grid">
           {/* headers */}
           {['','Input / Selection','Computed'].map((h,i) => (
-            <div key={i} style={{ fontSize:11, color:'#aaa', padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.1)', textAlign:i>0?'right':'left' }}>{h}</div>
+            <div key={i} className={`acq-colhead ${i>0?'r':''}`}>{h}</div>
           ))}
 
           {/* Close Date */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Anticipated close date</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}><input type="date" value={acq.close_date||''} onChange={e=>setAcq('close_date',e.target.value)} style={{ ...reqInp(acq.close_date), textAlign:'right' }}/></div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}></div>
+          <div className="acq-l">Anticipated close date</div>
+          <div className="acq-in"><input type="date" value={acq.close_date||''} onChange={e=>setAcq('close_date',e.target.value)} className={reqInp(acq.close_date) + ' r'}/></div>
+          <div className="acq-comp"></div>
 
           {/* Purchase Price — dropdown */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Purchase price</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)' }}>
+          <div className="acq-l">Purchase price</div>
+          <div className="acq-in">
             <select value={priceSourceKey} onChange={e=>setAcq('price_source',e.target.value)}
-              style={{ ...inp, textAlign:'right', cursor:'pointer' }}>
+              className="uw-input r">
               {pricingRows.map(row => (
                 <option key={row.key} value={row.key} disabled={!row.price}>{row.label}</option>
               ))}
             </select>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', fontWeight:600, fontSize:13 }}>{fmtC(selPrice||null)}</div>
+          <div className="acq-comp strong">{fmtC(selPrice||null)}</div>
 
           {/* Down Payment */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Down payment</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.down_pmt_pct||''} onChange={e=>setAcq('down_pmt_pct',e.target.value)} placeholder="25" style={{ ...reqInp(acq.down_pmt_pct), textAlign:'right' }}/><span style={{ color:'#888' }}>%</span>
+          <div className="acq-l">Down payment</div>
+          <div className="acq-in">
+            <input type="number" value={acq.down_pmt_pct||''} onChange={e=>setAcq('down_pmt_pct',e.target.value)} placeholder="25" className={reqInp(acq.down_pmt_pct) + ' r'}/><span className="acq-unit">%</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', fontWeight:500 }}>{fmtC(downAmt||null)}</div>
+          <div className="acq-comp">{fmtC(downAmt||null)}</div>
 
           {/* Loan Amount */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Loan amount</div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888' }}>{ltv?(ltv*100).toFixed(0)+'% LTV':''}</div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', fontWeight:500 }}>{fmtC(loanAmt||null)}</div>
+          <div className="acq-l">Loan amount</div>
+          <div className="acq-mid">{ltv?(ltv*100).toFixed(0)+'% LTV':''}</div>
+          <div className="acq-comp">{fmtC(loanAmt||null)}</div>
 
           {/* Loan Fees */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Loan fees</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.loan_fees_pct||''} onChange={e=>setAcq('loan_fees_pct',e.target.value)} placeholder="1" step="0.25" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888' }}>%</span>
+          <div className="acq-l">Loan fees</div>
+          <div className="acq-in">
+            <input type="number" value={acq.loan_fees_pct||''} onChange={e=>setAcq('loan_fees_pct',e.target.value)} placeholder="1" step="0.25" className="uw-input r"/><span className="acq-unit">%</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right' }}>{fmtC(loanFeesAmt||null)}</div>
+          <div className="acq-comp">{fmtC(loanFeesAmt||null)}</div>
 
           {/* Closing Costs */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Closing costs</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.closing_costs_pct||''} onChange={e=>setAcq('closing_costs_pct',e.target.value)} placeholder="2" step="0.25" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888' }}>%</span>
+          <div className="acq-l">Closing costs</div>
+          <div className="acq-in">
+            <input type="number" value={acq.closing_costs_pct||''} onChange={e=>setAcq('closing_costs_pct',e.target.value)} placeholder="2" step="0.25" className="uw-input r"/><span className="acq-unit">%</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right' }}>{fmtC(closeCostAmt||null)}</div>
+          <div className="acq-comp">{fmtC(closeCostAmt||null)}</div>
 
           {/* Total Acq Costs */}
-          <div style={{ padding:'7px 0', borderBottom:'0.5px solid rgba(0,0,0,0.12)', fontWeight:600, color:'#111' }}>Total acquisition costs</div>
-          <div style={{ padding:'7px 0', borderBottom:'0.5px solid rgba(0,0,0,0.12)', textAlign:'right', color:'#888', fontSize:11 }}>
+          <div className="acq-l is-total">Total acquisition costs</div>
+          <div className="acq-mid is-total">
             {acqCostPct ? (acqCostPct*100).toFixed(2)+'%' : ''}
           </div>
-          <div style={{ padding:'7px 0', borderBottom:'0.5px solid rgba(0,0,0,0.12)', textAlign:'right', fontWeight:600, color:'#111' }}>{fmtC(totalAcq||null)}</div>
-          <div style={{ gridColumn:'1/-1', height:8 }}></div>
+          <div className="acq-comp is-total">{fmtC(totalAcq||null)}</div>
+          <div className="acq-spacer"></div>
 
           {/* Interest Rate */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Fixed interest rate</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.interest_rate||''} onChange={e=>setAcq('interest_rate',e.target.value)} placeholder="6.5" step="0.125" style={{ ...reqInp(acq.interest_rate), textAlign:'right' }}/><span style={{ color:'#888', whiteSpace:'nowrap' }}>% / yr</span>
+          <div className="acq-l">Fixed interest rate</div>
+          <div className="acq-in">
+            <input type="number" value={acq.interest_rate||''} onChange={e=>setAcq('interest_rate',e.target.value)} placeholder="6.5" step="0.125" className={reqInp(acq.interest_rate) + ' r'}/><span className="acq-unit">% / yr</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>Annually</div>
+          <div className="acq-mid">Annually</div>
 
           {/* Amortization */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Amortization</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.amortization||''} onChange={e=>setAcq('amortization',e.target.value)} placeholder="25" style={{ ...reqInp(acq.amortization), textAlign:'right' }}/><span style={{ color:'#888' }}>Years</span>
+          <div className="acq-l">Amortization</div>
+          <div className="acq-in">
+            <input type="number" value={acq.amortization||''} onChange={e=>setAcq('amortization',e.target.value)} placeholder="25" className={reqInp(acq.amortization) + ' r'}/><span className="acq-unit">Years</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>{amortYrs?amortYrs*12+' Months':''}</div>
+          <div className="acq-mid">{amortYrs?amortYrs*12+' Months':''}</div>
 
           {/* Loan Term */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Loan term</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.loan_term||''} onChange={e=>setAcq('loan_term',e.target.value)} placeholder="10" style={{ ...reqInp(acq.loan_term), textAlign:'right' }}/><span style={{ color:'#888' }}>Years</span>
+          <div className="acq-l">Loan term</div>
+          <div className="acq-in">
+            <input type="number" value={acq.loan_term||''} onChange={e=>setAcq('loan_term',e.target.value)} placeholder="10" className={reqInp(acq.loan_term) + ' r'}/><span className="acq-unit">Years</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>{loanTermYrs?loanTermYrs*12+' Months':''}</div>
+          <div className="acq-mid">{loanTermYrs?loanTermYrs*12+' Months':''}</div>
 
           {/* I/O Period */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Interest-only period</div>
-          <div style={{ padding:'4px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', display:'flex', alignItems:'center', gap:4 }}>
-            <input type="number" value={acq.io_period||''} onChange={e=>setAcq('io_period',e.target.value)} placeholder="0" style={{ ...inp, textAlign:'right' }}/><span style={{ color:'#888' }}>Months</span>
+          <div className="acq-l">Interest-only period</div>
+          <div className="acq-in">
+            <input type="number" value={acq.io_period||''} onChange={e=>setAcq('io_period',e.target.value)} placeholder="0" className="uw-input r"/><span className="acq-unit">Months</span>
           </div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', color:'#888', fontSize:11 }}>{ioPeriod?ioPeriod+' Months':'0 Months'}</div>
-          <div style={{ gridColumn:'1/-1', height:4 }}></div>
+          <div className="acq-mid">{ioPeriod?ioPeriod+' Months':'0 Months'}</div>
+          <div className="acq-spacer"></div>
 
           {/* Amortizing Payment */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Amortizing payment</div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right' }}>{fmtC(moAmort||null)} <span style={{ color:'#aaa', fontSize:11 }}>/mo</span></div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', fontWeight:600 }}>{fmtC(moAmort?moAmort*12:null)} <span style={{ color:'#aaa', fontSize:11 }}>/yr</span></div>
+          <div className="acq-l">Amortizing payment</div>
+          <div className="acq-comp">{fmtC(moAmort||null)} <span className="acq-unit small">/mo</span></div>
+          <div className="acq-comp">{fmtC(moAmort?moAmort*12:null)} <span className="acq-unit small">/yr</span></div>
 
           {/* I/O Payment */}
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', color:'#555' }}>Interest-only payment</div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right' }}>{fmtC(moIO||null)} <span style={{ color:'#aaa', fontSize:11 }}>/mo</span></div>
-          <div style={{ padding:'6px 0', borderBottom:'0.5px solid rgba(0,0,0,0.06)', textAlign:'right', fontWeight:600 }}>{fmtC(moIO?moIO*12:null)} <span style={{ color:'#aaa', fontSize:11 }}>/yr</span></div>
+          <div className="acq-l">Interest-only payment</div>
+          <div className="acq-comp">{fmtC(moIO||null)} <span className="acq-unit small">/mo</span></div>
+          <div className="acq-comp">{fmtC(moIO?moIO*12:null)} <span className="acq-unit small">/yr</span></div>
 
           {/* DSCR */}
           {srcNOI>0&&annualDS>0&&<>
-            <div style={{ padding:'7px 0', fontWeight:600, color:'#111' }}>DSCR ({incSrc})</div>
-            <div></div>
-            <div style={{ padding:'7px 0', textAlign:'right', fontWeight:600, color:dc(srcNOI/annualDS) }}>{fmtN(srcNOI/annualDS)}</div>
+            <div className="acq-l is-total">DSCR ({incSrc})</div>
+            <div className="acq-mid is-total"></div>
+            <div className={`acq-comp is-total uw-dscr ${dscrCls(srcNOI/annualDS)}`}>{fmtN(srcNOI/annualDS)}</div>
           </>}
         </div>
       </div>
 
       {/* ═══ CAPEX ══════════════════════════════════════════════════════ */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 }}>
+      <div className="acq-capex-grid">
         {[
           { title:'Value-Add CapEx Assumptions', key:'value_add_capex', rows:vaCapex, total:vaTotal },
           { title:'Reserve / Replacement CapEx',  key:'reserve_capex',   rows:resCapex, total:resTotal },
         ].map(({ title, key, rows:capexRows, total }) => (
-          <div key={key} style={{ ...card, marginBottom:0 }}>
-            <div style={sHdr}>{title}</div>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12, marginBottom:8 }}>
-              <thead><tr style={{ borderBottom:'0.5px solid rgba(0,0,0,0.1)' }}>
-                <th style={{ textAlign:'left', padding:'4px', color:'#888', fontWeight:500, fontSize:11 }}>Description</th>
-                <th style={{ textAlign:'right', padding:'4px', color:'#888', fontWeight:500, fontSize:11, width:80 }}>Cost Est.</th>
-                <th style={{ textAlign:'center', padding:'4px', color:'#888', fontWeight:500, fontSize:11, width:68 }}>Start Mo.</th>
-                <th style={{ textAlign:'center', padding:'4px', color:'#888', fontWeight:500, fontSize:11, width:68 }}>End Mo.</th>
-                <th style={{ width:22 }}></th>
+          <div key={key} className={card}>
+            <div className={sHdr}>{title}</div>
+            <table className="uw-table" style={{ marginBottom:8 }}>
+              <thead><tr>
+                <th className="l">Description</th>
+                <th>Cost Est.</th>
+                <th>Start Mo.</th>
+                <th>End Mo.</th>
+                <th></th>
               </tr></thead>
               <tbody>
                 {capexRows.map((row,idx) => (
-                  <tr key={row.id||idx} style={{ borderBottom:'0.5px solid rgba(0,0,0,0.04)' }}>
+                  <tr key={row.id||idx}>
                     {[['label','text','left'],['cost','number','right'],['month_start','number','center'],['month_end','number','center']].map(([field,type,align]) => (
                       <td key={field} style={{ padding:'3px 2px' }}>
                         <input type={type} value={row[field]||''} placeholder={field==='label'?'Description':field==='cost'?'0':'1'}
                           onChange={e=>updCapex(key,idx,field,e.target.value)}
-                          style={{ width:'100%', border:'none', borderBottom:'0.5px solid #eee', fontSize:12, padding:'3px 4px', background:'transparent', outline:'none', textAlign:align }}/>
+                          className="uw-capex-input" style={{ textAlign:align }}/>
                       </td>
                     ))}
                     <td style={{ padding:'3px 2px', textAlign:'center' }}>
-                      {capexRows.length>1&&<button onClick={()=>removeRow(key,idx)} style={{ background:'none', border:'none', color:'#ccc', cursor:'pointer', fontSize:16, lineHeight:1, padding:0 }}>×</button>}
+                      {capexRows.length>1&&<button onClick={()=>removeRow(key,idx)} className="uw-rm">×</button>}
                     </td>
                   </tr>
                 ))}
-                <tr style={{ borderTop:'0.5px solid rgba(0,0,0,0.1)', background:'#F9F9F9' }}>
-                  <td style={{ padding:'6px 8px', fontWeight:500 }}>Total</td>
-                  <td style={{ padding:'6px 8px', textAlign:'right', fontWeight:600 }}>{fmtC(total)}</td>
+                <tr className="total">
+                  <td className="l" style={{ fontWeight:600 }}>Total</td>
+                  <td style={{ fontWeight:700 }}>{fmtC(total)}</td>
                   <td colSpan={3}></td>
                 </tr>
               </tbody>
             </table>
-            <button onClick={()=>addRow(key)} style={{ fontSize:11, color:'#888', background:'none', border:'0.5px dashed #ccc', borderRadius:6, padding:'4px 12px', cursor:'pointer' }}>+ Add row</button>
+            <button onClick={()=>addRow(key)} className="uw-addrow">+ Add row</button>
           </div>
         ))}
       </div>
@@ -796,14 +788,14 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
 
       {showPricing && (<>
       {/* ═══ MARKET PRICING BAND ════════════════════════════════════════ */}
-      <div style={card}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', ...sHdr }}>
+      <div className={card}>
+        <div className="uw-card-head">
           <span>Market Pricing Band</span>
-          <button onClick={calcBandDefaults} style={{ fontSize:11, color:'#3C3489', background:'#F8F7FF', border:'0.5px solid #AFA9EC', borderRadius:6, padding:'4px 10px', cursor:'pointer', fontWeight:500, textTransform:'none', letterSpacing:0 }}>
+          <button onClick={calcBandDefaults} className="uw-mini-btn">
             ↻ Reset to defaults
           </button>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr', gap:12 }}>
+        <div className="uw-band-grid">
           {[
             { label:'Investor floor price',  key:'investor_floor'   },
             { label:'Market band — low',     key:'band_low'         },
@@ -812,9 +804,9 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             { label:'Suggested list price',  key:'suggested_price'  },
                     ].map(({ label, key }) => (
             <div key={key}>
-              <div style={{ fontSize:11, color:'#666', marginBottom:2 }}>{label}</div>
-              <input type="number" value={mp[key]||''} onChange={e=>setMP(key,e.target.value)} style={inp}/>
-              {mp[key] && <div style={{ fontSize:11, color:'#111', fontWeight:500, marginTop:2 }}>{fmtC(mp[key])}</div>}
+              <div className="uw-band-l">{label}</div>
+              <input type="number" value={mp[key]||''} onChange={e=>setMP(key,e.target.value)} className={inp}/>
+              {mp[key] && <div className="uw-band-fig">{fmtC(mp[key])}</div>}
             </div>
           ))}
         </div>
@@ -823,66 +815,64 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
 
       {showAcq && (<>
       {/* ═══ INVESTOR RETURNS ═══════════════════════════════════════════ */}
-      <div style={card}>
-        <div style={sHdr}>Investor Returns</div>
+      <div className={card}>
+        <div className={sHdr}>Investor Returns</div>
 
         {/* Stabilized summary bar — from operating model */}
         {hasOpModel && stabMonth != null && (
-          <div style={{ display:'flex', gap:24, padding:'10px 14px', background:'#F8F7FF', borderRadius:8, marginBottom:refiEnabled?8:16, fontSize:12, flexWrap:'wrap', alignItems:'center' }}>
-            <span style={{ color:'#888', fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Stabilized</span>
-            <span>Month <strong style={{color:'#111'}}>{stabMonth}</strong></span>
-            {stabNOI > 0 && <span>Stabilized NOI <strong style={{color:'#27500A'}}>{fmtC(stabNOI)}</strong></span>}
-            {stabNOI > 0 && selPrice > 0 && <span>Stabilized cap <strong style={{color:'#111'}}>{fmtP(stabNOI/selPrice)}</strong></span>}
+          <div className="uw-summary-bar" style={{ marginBottom: refiEnabled?8:16 }}>
+            <span className="uw-summary-l">Stabilized</span>
+            <span>Month <strong>{stabMonth}</strong></span>
+            {stabNOI > 0 && <span>Stabilized NOI <strong style={{color:'var(--pos)'}}>{fmtC(stabNOI)}</strong></span>}
+            {stabNOI > 0 && selPrice > 0 && <span>Stabilized cap <strong>{fmtP(stabNOI/selPrice)}</strong></span>}
           </div>
         )}
         {refiEnabled && refiLoan > 0 && (
-          <div style={{ display:'flex', gap:24, padding:'10px 14px', background:'#EAF3DE', borderRadius:8, marginBottom:16, fontSize:12, flexWrap:'wrap', alignItems:'center' }}>
-            <span style={{ color:'#888', fontSize:11, textTransform:'uppercase', letterSpacing:'0.04em' }}>Refinance</span>
-            <span>Year <strong style={{color:'#111'}}>{refiYear}</strong></span>
-            <span>Cash-out <strong style={{color:refiProceeds>=0?'#27500A':'#791F1F'}}>{fmtC(refiProceeds)}</strong></span>
-            <span>New DS <strong style={{color:'#111'}}>{fmtC(refiAnnualDS)}</strong>/yr</span>
-            {refiDSCRval && <span>DSCR <strong style={{color:dc(refiDSCRval)}}>{fmtN(refiDSCRval)}</strong></span>}
+          <div className="uw-summary-bar accent">
+            <span className="uw-summary-l">Refinance</span>
+            <span>Year <strong>{refiYear}</strong></span>
+            <span>Cash-out <strong style={{color:refiProceeds>=0?'var(--pos)':'var(--neg)'}}>{fmtC(refiProceeds)}</strong></span>
+            <span>New DS <strong>{fmtC(refiAnnualDS)}</strong>/yr</span>
+            {refiDSCRval && <span>DSCR <strong className={`uw-dscr ${dscrCls(refiDSCRval)}`}>{fmtN(refiDSCRval)}</strong></span>}
           </div>
         )}
 
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:24, marginBottom:16 }}>
+        <div className="uw-ir-grid">
           <div>
-            <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>Purchase Summary</div>
+            <div className="uw-kv-sub">Purchase Summary</div>
             <KV label="Purchase price"          value={fmtC(selPrice||null)} />
             <KV label="Loan amount"             value={fmtC(loanAmt||null)} />
             <KV label="Total acquisition costs" value={fmtC(totalAcq||null)} bold />
             <div style={{ height:12 }}/>
-            <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>
+            <div className="uw-kv-sub">
               {hasOpModel ? 'Year 01 — Operating model' : `Year 01 — ${incSrc} (static)`}
             </div>
             <KV label="NOI"                  value={fmtC(yr1NOI||null)} />
             <KV label="Annual debt service"  value={fmtC(annualDS||null)} />
             <KV label="Cash flow"            value={fmtC(annCF||null)} />
             <KV label="Cash-on-Cash return"  value={coc!=null?fmtP(coc):'—'} bold
-              color={coc!=null?(coc>=0.08?'#27500A':coc>=0.04?'#633806':'#791F1F'):'#ccc'} />
+              color={coc!=null?(coc>=0.08?'var(--pos)':coc>=0.04?'var(--warn)':'var(--neg)'):undefined} />
             <KV label="Going-in cap rate"    value={selPrice&&yr1NOI?fmtP(yr1NOI/selPrice):'—'} />
             {/* Year-by-year NOI table when op model available */}
             {hasOpModel && opModel.annualProjections.length > 0 && (
               <div style={{ marginTop:12 }}>
-                <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:6 }}>Projected NOI by Year</div>
-                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                <div className="uw-kv-sub">Projected NOI by Year</div>
+                <table className="uw-table" style={{ fontSize:11 }}>
                   <thead><tr>
-                    <th style={{ textAlign:'left',  padding:'3px 4px', color:'#aaa', fontWeight:500 }}>Year</th>
-                    <th style={{ textAlign:'right', padding:'3px 4px', color:'#aaa', fontWeight:500 }}>EGR</th>
-                    <th style={{ textAlign:'right', padding:'3px 4px', color:'#aaa', fontWeight:500 }}>Expenses</th>
-                    <th style={{ textAlign:'right', padding:'3px 4px', color:'#aaa', fontWeight:500 }}>NOI</th>
+                    <th className="l">Year</th>
+                    <th>EGR</th>
+                    <th>Expenses</th>
+                    <th>NOI</th>
                   </tr></thead>
                   <tbody>
                     {opModel.annualProjections.map((yr, i) => (
-                      <tr key={i} style={{ borderTop:'0.5px solid rgba(0,0,0,0.06)',
-                        background: i === exitYear ? '#EAF3DE' : 'transparent',
-                        fontWeight: i === exitYear ? 600 : 400 }}>
-                        <td style={{ padding:'3px 4px', color:'#555' }}>
+                      <tr key={i} className={i === exitYear ? 'exit' : ''}>
+                        <td className="l">
                           Yr {yr.year}{i===exitYear?' (exit)':i===exitYear+1?' (sale NOI)':''}
                         </td>
-                        <td style={{ padding:'3px 4px', textAlign:'right' }}>{fmtC(yr.egr)}</td>
-                        <td style={{ padding:'3px 4px', textAlign:'right', color:'#888' }}>{fmtC(yr.expenses)}</td>
-                        <td style={{ padding:'3px 4px', textAlign:'right', color:yr.noi>0?'#27500A':'#791F1F' }}>{fmtC(yr.noi)}</td>
+                        <td>{fmtC(yr.egr)}</td>
+                        <td className="lbl">{fmtC(yr.expenses)}</td>
+                        <td style={{ color:yr.noi>0?'var(--pos)':'var(--neg)' }}>{fmtC(yr.noi)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -891,15 +881,15 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
             )}
           </div>
           <div>
-            <div style={{ fontSize:11, fontWeight:500, color:'#555', marginBottom:8 }}>Exit Assumptions</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-              <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Anticipated exit year</div>
-                <input type="number" value={ir.exit_year||''} onChange={e=>setIR('exit_year',e.target.value)} placeholder="5" style={reqInp(ir.exit_year)}/></div>
-              <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Going-out cap rate %</div>
-                <input type="number" value={ir.going_out_cap||''} onChange={e=>setIR('going_out_cap',e.target.value)} placeholder="8.0" step="0.25" style={reqInp(ir.going_out_cap)}/></div>
+            <div className="uw-kv-sub">Exit Assumptions</div>
+            <div className="uw-2col">
+              <div><div className="uw-band-l">Anticipated exit year</div>
+                <input type="number" value={ir.exit_year||''} onChange={e=>setIR('exit_year',e.target.value)} placeholder="5" className={reqInp(ir.exit_year)}/></div>
+              <div><div className="uw-band-l">Going-out cap rate %</div>
+                <input type="number" value={ir.going_out_cap||''} onChange={e=>setIR('going_out_cap',e.target.value)} placeholder="8.0" step="0.25" className={reqInp(ir.going_out_cap)}/></div>
             </div>
-            <div style={{ marginBottom:12 }}><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Sale expense %</div>
-              <input type="number" value={ir.sale_expense||''} onChange={e=>setIR('sale_expense',e.target.value)} placeholder="5" step="0.5" style={reqInp(ir.sale_expense)}/></div>
+            <div style={{ marginBottom:12 }}><div className="uw-band-l">Sale expense %</div>
+              <input type="number" value={ir.sale_expense||''} onChange={e=>setIR('sale_expense',e.target.value)} placeholder="5" step="0.5" className={reqInp(ir.sale_expense)}/></div>
             <KV label={`Year ${exitYear+1} NOI (sale basis)`} value={fmtC(exitNOI||null)} />
             <KV label="Sale price"           value={fmtC(salePrice||null)} />
             <KV label="Remaining loan balance" value={fmtC(remBal||null)} />
@@ -907,77 +897,77 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
           </div>
         </div>
         {(levIRR!=null||unlevIRR!=null)&&(
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12, padding:'12px 14px', background:'#F8F8F8', borderRadius:8 }}>
+          <div className="uw-stats">
             {[
-              { label:'Unlevered IRR',   val:unlevIRR!=null?fmtP(unlevIRR):'—', col:unlevIRR!=null&&unlevIRR>=0.08?'#27500A':unlevIRR>=0.05?'#633806':'#791F1F' },
-              { label:'Levered IRR',     val:levIRR!=null?fmtP(levIRR):'—',     col:levIRR!=null&&levIRR>=0.15?'#27500A':levIRR>=0.08?'#633806':'#791F1F' },
-              { label:'Equity multiple', val:levEM!=null?fmtX(levEM):'—',       col:levEM!=null&&levEM>=2?'#27500A':levEM>=1.5?'#633806':'#791F1F' },
-              { label:'Cash-on-Cash',    val:coc!=null?fmtP(coc):'—',           col:coc!=null&&coc>=0.08?'#27500A':coc>=0.04?'#633806':'#791F1F' },
+              { label:'Unlevered IRR',   val:unlevIRR!=null?fmtP(unlevIRR):'—', col:unlevIRR!=null&&unlevIRR>=0.08?'var(--pos)':unlevIRR>=0.05?'var(--warn)':'var(--neg)' },
+              { label:'Levered IRR',     val:levIRR!=null?fmtP(levIRR):'—',     col:levIRR!=null&&levIRR>=0.15?'var(--pos)':levIRR>=0.08?'var(--warn)':'var(--neg)' },
+              { label:'Equity multiple', val:levEM!=null?fmtX(levEM):'—',       col:levEM!=null&&levEM>=2?'var(--pos)':levEM>=1.5?'var(--warn)':'var(--neg)' },
+              { label:'Cash-on-Cash',    val:coc!=null?fmtP(coc):'—',           col:coc!=null&&coc>=0.08?'var(--pos)':coc>=0.04?'var(--warn)':'var(--neg)' },
             ].map(({ label,val,col }) => (
-              <div key={label} style={{ textAlign:'center' }}>
-                <div style={{ fontSize:10, color:'#999', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:4 }}>{label}</div>
-                <div style={{ fontSize:18, fontWeight:600, color:col }}>{val}</div>
+              <div key={label} className="uw-stat">
+                <div className="uw-stat-l">{label}</div>
+                <div className="uw-stat-v" style={{ color:col }}>{val}</div>
               </div>
             ))}
           </div>
         )}
-        {!hasOpModel && <div style={{ fontSize:10, color:'#bbb', marginTop:8 }}>* Add rent roll + growth assumptions to enable operating model projections.</div>}
+        {!hasOpModel && <div className="uw-note" style={{ marginTop:8 }}>* Add rent roll + growth assumptions to enable operating model projections.</div>}
       </div>
 
       {/* ═══ REFINANCE ══════════════════════════════════════════════════ */}
-      <div style={card}>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', ...sHdr }}>
+      <div className={card}>
+        <div className="uw-card-head">
           <span>Refinance Details</span>
-          <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontWeight:400, textTransform:'none', letterSpacing:0, color:'#555', fontSize:12 }}>
+          <label className="uw-checkbox-label">
             <span>Include refinance</span>
             <input type="checkbox" checked={refiEnabled} onChange={e=>setRefi('enabled',e.target.checked)} style={{ width:15, height:15, cursor:'pointer' }}/>
           </label>
         </div>
         {!refiEnabled
-          ? <div style={{ fontSize:12, color:'#bbb' }}>Refinance not included in this analysis.</div>
+          ? <div className="uw-empty">Refinance not included in this analysis.</div>
           : <>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:28, marginBottom:16 }}>
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi month</div>
-                      <input type="number" value={refi.refi_month||''} onChange={e=>setRefi('refi_month',e.target.value)} placeholder="60" style={inp}/></div>
-                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi cap rate %</div>
-                      <input type="number" value={refi.refi_cap_rate||''} onChange={e=>setRefi('refi_cap_rate',e.target.value)} placeholder="6.0" step="0.25" style={reqInp(refi.refi_cap_rate)}/></div>
+              <div className="uw-refi-grid">
+                <div className="uw-col">
+                  <div className="uw-2col">
+                    <div><div className="uw-band-l">Refi month</div>
+                      <input type="number" value={refi.refi_month||''} onChange={e=>setRefi('refi_month',e.target.value)} placeholder="60" className={inp}/></div>
+                    <div><div className="uw-band-l">Refi cap rate %</div>
+                      <input type="number" value={refi.refi_cap_rate||''} onChange={e=>setRefi('refi_cap_rate',e.target.value)} placeholder="6.0" step="0.25" className={reqInp(refi.refi_cap_rate)}/></div>
                   </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Loan LTV %</div>
-                      <input type="number" value={refi.loan_pct||''} onChange={e=>setRefi('loan_pct',e.target.value)} placeholder="75" style={inp}/></div>
-                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Target DSCR</div>
-                      <input type="number" value={refi.target_dscr||''} onChange={e=>setRefi('target_dscr',e.target.value)} placeholder="1.25" step="0.05" style={inp}/></div>
+                  <div className="uw-2col">
+                    <div><div className="uw-band-l">Loan LTV %</div>
+                      <input type="number" value={refi.loan_pct||''} onChange={e=>setRefi('loan_pct',e.target.value)} placeholder="75" className={inp}/></div>
+                    <div><div className="uw-band-l">Target DSCR</div>
+                      <input type="number" value={refi.target_dscr||''} onChange={e=>setRefi('target_dscr',e.target.value)} placeholder="1.25" step="0.05" className={inp}/></div>
                   </div>
-                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Refi fees %</div>
-                    <input type="number" value={refi.refi_fees_pct||''} onChange={e=>setRefi('refi_fees_pct',e.target.value)} placeholder="1" step="0.25" style={inp}/></div>
+                  <div><div className="uw-band-l">Refi fees %</div>
+                    <input type="number" value={refi.refi_fees_pct||''} onChange={e=>setRefi('refi_fees_pct',e.target.value)} placeholder="1" step="0.25" className={inp}/></div>
                 </div>
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Fixed interest rate %</div>
-                    <input type="number" value={refi.interest_rate||''} onChange={e=>setRefi('interest_rate',e.target.value)} placeholder="7.0" step="0.125" style={inp}/></div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Amortization (years)</div>
-                      <input type="number" value={refi.amortization||''} onChange={e=>setRefi('amortization',e.target.value)} placeholder="30" style={inp}/></div>
-                    <div><div style={{ fontSize:11, color:'#666', marginBottom:3 }}>Loan term (years)</div>
-                      <input type="number" value={refi.loan_term||''} onChange={e=>setRefi('loan_term',e.target.value)} placeholder="10" style={inp}/></div>
+                <div className="uw-col">
+                  <div><div className="uw-band-l">Fixed interest rate %</div>
+                    <input type="number" value={refi.interest_rate||''} onChange={e=>setRefi('interest_rate',e.target.value)} placeholder="7.0" step="0.125" className={inp}/></div>
+                  <div className="uw-2col">
+                    <div><div className="uw-band-l">Amortization (years)</div>
+                      <input type="number" value={refi.amortization||''} onChange={e=>setRefi('amortization',e.target.value)} placeholder="30" className={inp}/></div>
+                    <div><div className="uw-band-l">Loan term (years)</div>
+                      <input type="number" value={refi.loan_term||''} onChange={e=>setRefi('loan_term',e.target.value)} placeholder="10" className={inp}/></div>
                   </div>
                   <KV label="Amortizing payment / month" value={fmtC(refiMoAmort||null)} />
                   <KV label="Amortizing payment / year"  value={fmtC(refiMoAmort?refiMoAmort*12:null)} bold/>
                   <KV label="I/O payment / month"        value={fmtC(refiMoIO||null)}/>
                 </div>
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:12, padding:'12px 14px', background:'#F8F7FF', borderRadius:8 }}>
+              <div className="uw-stats c5">
                 {[
                   { label:'Appraised value', val:fmtC(refiValue||null) },
                   { label:`Refi loan (${refiBinding})`, val:fmtC(refiLoan||null) },
-                  { label:'Cash-out proceeds', val:fmtC(refiProceeds), col:refiProceeds>=0?'#27500A':'#791F1F' },
-                  { label:'Refi DSCR', val:refiDSCRval?fmtN(refiDSCRval):'—', col:dc(refiDSCRval) },
+                  { label:'Cash-out proceeds', val:fmtC(refiProceeds), col:refiProceeds>=0?'var(--pos)':'var(--neg)' },
+                  { label:'Refi DSCR', val:refiDSCRval?fmtN(refiDSCRval):'—', col:refiDSCRval?(refiDSCRval>=1.25?'var(--pos)':refiDSCRval>=1.0?'var(--warn)':'var(--neg)'):undefined },
                   { label:'NOI at refi', val:fmtC(refiNOI||null) },
                 ].map(({ label,val,col }) => (
-                  <div key={label} style={{ textAlign:'center' }}>
-                    <div style={{ fontSize:10, color:'#999', textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:4 }}>{label}</div>
-                    <div style={{ fontSize:15, fontWeight:600, color:col||'#111' }}>{val}</div>
+                  <div key={label} className="uw-stat">
+                    <div className="uw-stat-l">{label}</div>
+                    <div className="uw-stat-v" style={col ? { color:col } : undefined}>{val}</div>
                   </div>
                 ))}
               </div>
@@ -987,9 +977,8 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
       </>)}
 
       <div style={{ display:'flex', justifyContent:'flex-end', paddingBottom:32 }}>
-        <button onClick={save} disabled={saving}
-          style={{ padding:'8px 22px', background:'#111', color:'#fff', border:'none', borderRadius:8, fontWeight:500, fontSize:13, cursor:saving?'not-allowed':'pointer', opacity:saving?0.6:1 }}>
-          {saving?'Saving...':'Save dashboard'}
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {saving?'Saving…':'Save dashboard'}
         </button>
       </div>
     </div>
