@@ -154,6 +154,8 @@
 .btn-secondary:hover:not(:disabled) { background: var(--paper); }
 .btn-ghost { background: transparent; color: var(--slate); }
 .btn-ghost:hover:not(:disabled) { color: var(--ink); }
+.btn-danger { background: transparent; color: var(--neg); border-color: var(--hairline-2); }
+.btn-danger:hover:not(:disabled) { background: var(--neg); color: #fff; border-color: var(--neg); }
 
 /* ---------- PAGE HEADER ---------- */
 .ap-head {

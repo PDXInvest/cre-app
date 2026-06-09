@@ -193,6 +193,27 @@ export default function CompDatabase() {
     setTimeout(() => setMsg(''), 2500)
   }
 
+  // Delete a comp from the SHARED comps table. Also removes its photo from storage and any
+  // comp_selections rows that reference it (so no orphaned per-proposal selections / FK errors).
+  async function deleteComp(comp) {
+    if (!comp) return
+    const name = comp.property_name || comp.sale_name || 'this comp'
+    if (!window.confirm(`Delete "${name}" from the comp database?\n\nThis removes it from every proposal and cannot be undone.`)) return
+    if (comp.photo) {
+      try {
+        const parts = comp.photo.split('/comp-photos/')
+        if (parts.length === 2) await supabase.storage.from('comp-photos').remove([decodeURIComponent(parts[1])])
+      } catch (e) { console.warn('photo remove:', e) }
+    }
+    await supabase.from('comp_selections').delete().eq('comp_id', comp.id)
+    const { error } = await supabase.from('comps').delete().eq('id', comp.id)
+    if (error) { console.error(error); setMsg('Delete failed: ' + error.message); setTimeout(() => setMsg(''), 4000); return }
+    setComps(prev => prev.filter(c => c.id !== comp.id))
+    setSelectedId(null)
+    setMsg(`Deleted "${name}"`)
+    setTimeout(() => setMsg(''), 3000)
+  }
+
   const filtered = comps.filter(c => {
     if (statusFilter !== 'All' && c.status !== statusFilter) return false
     if (subFilter !== 'All' && c.sub_market !== subFilter) return false
@@ -328,7 +349,7 @@ export default function CompDatabase() {
                 ))}
               </div>
             </div>
-            {selected && <CompPreview c={selected} onEdit={updateCompField} />}
+            {selected && <CompPreview c={selected} onEdit={updateCompField} onDelete={deleteComp} />}
           </div>
         </>
       )}
@@ -336,7 +357,7 @@ export default function CompDatabase() {
   )
 }
 
-function CompPreview({ c, onEdit }) {
+function CompPreview({ c, onEdit, onDelete }) {
   // editable field → writes raw column to shared comps table
   const ef = (field, type, fmt, options) => (
     <EditableField value={c[field]} type={type} fmt={fmt} options={options} onSave={v => onEdit(c.id, field, v, type)} />
@@ -410,6 +431,11 @@ function CompPreview({ c, onEdit }) {
         <p className="pr-card-h" style={{ marginTop: 16 }}>Notes</p>
         <textarea key={c.id} className="cdb-notes" defaultValue={c.notes || ''} placeholder="Add a note…"
           onBlur={e => { if ((e.target.value || '') !== (c.notes || '')) onEdit(c.id, 'notes', e.target.value, 'text') }} />
+
+        <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--hairline)' }}>
+          <button className="btn btn-danger" onClick={() => onDelete(c)}>Delete comp</button>
+          <p className="cdb-cue" style={{ marginTop: 6 }}>Removes this comp from the shared database for every proposal. Cannot be undone.</p>
+        </div>
       </div>
     </aside>
   )
