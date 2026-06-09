@@ -82,6 +82,29 @@
 .ms-filter-row { gap: 4px; }
 .ms-filter-row .fchip { padding: 4px 7px; gap: 5px; flex-shrink: 0; white-space: nowrap; }
 .ms-filter-row .fchip-caret { margin-left: 0; }
+
+/* Zip type-ahead — input styled to match .fchip-select, with a validated suggestion menu */
+.fchip-input {
+  border: none; background: transparent; outline: none;
+  font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink);
+  letter-spacing: -0.005em; padding: 0; margin: 0; width: 52px;
+}
+.fchip-input::placeholder { color: var(--mute); font-weight: 500; }
+.fchip.is-muted .fchip-input { color: var(--mute); }
+.fchip.is-invalid { border-color: var(--neg); }
+.fchip.is-invalid .fchip-input { color: var(--neg); }
+.ms-zip { position: relative; }
+.ms-zip-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  min-width: 100%; background: var(--surface, #fff);
+  border: 1px solid var(--hairline); border-radius: var(--r);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.10); padding: 4px; max-height: 220px; overflow-y: auto;
+}
+.ms-zip-opt {
+  padding: 5px 9px; font-size: 12px; font-weight: 600; color: var(--ink);
+  border-radius: 4px; cursor: pointer; white-space: nowrap;
+}
+.ms-zip-opt:hover { background: var(--paper); }
 .ms-filter-div { margin: 0 2px; }
 .ms-filter-rowlabel { margin-right: 0; letter-spacing: 0.1em; }
 .ms-filter-row .tf-seg { padding: 2px; gap: 1px; }

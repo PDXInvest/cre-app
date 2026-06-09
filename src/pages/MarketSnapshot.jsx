@@ -124,12 +124,10 @@ function MSCmpBars({ rows }) {
 /* ============================================================
    CHROME — filter strip + "right now" strip
    ============================================================ */
-/* Placeholder filter option sets. When real comp-derived data is wired into
-   snapshotData.js, derive these from the comp pool instead. */
+/* Static filter option sets. Sub-Market and Zip are NOT here — they're derived dynamically
+   from the comp pool (fetchSnapshotData → options) so they always match real comp values. */
 const MS_FILTER_OPTS = {
   county:    ['All', 'Multnomah', 'Washington', 'Clackamas', 'Clark'],
-  subMarket: ['All', 'SE Portland', 'NE Portland', 'N Portland', 'NW Portland', 'SW Portland', 'Downtown Portland'],
-  zip:       ['All', '97214', '97215', '97206', '97211', '97217'],
   era:       ['All', 'Pre-1940', '1940–1970', '1970–1990', '1990–2010', '2010–Present'],
   terms:     ['All', 'Cash', 'Financed'],
   buyer:     ['All', 'Owner-occ', 'Investor'],
@@ -173,13 +171,53 @@ function MSUnitRange({ min, max, onMin, onMax }) {
   )
 }
 
-function MSFilterStrip({ tf, setTf, filters, setFilter, onPresent, loading }) {
+/* Zip type-ahead — free text validated against the distinct zip list from the comp pool.
+   Empty commits "All". A typed value only commits if it exists in the list (Excel-style data
+   validation); anything else is flagged invalid and left unapplied. */
+function MSZipInput({ value, options, onChange }) {
+  const [text, setText] = useState(value === 'All' ? '' : value)
+  const [open, setOpen] = useState(false)
+  const [invalid, setInvalid] = useState(false)
+  const wrapRef = useRef(null)
+  useEffect(() => { setText(value === 'All' ? '' : value) }, [value])
+  useEffect(() => {
+    const h = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  const q = text.trim()
+  const matches = (q ? options.filter(z => z.startsWith(q)) : options).slice(0, 8)
+  const commit = v => {
+    const val = (v || '').trim()
+    if (val === '') { onChange('All'); setInvalid(false); setText(''); setOpen(false); return }
+    if (options.includes(val)) { onChange(val); setInvalid(false); setText(val); setOpen(false) }
+    else { setInvalid(true) }   // keep current applied value; flag the bad input
+  }
+  return (
+    <label ref={wrapRef} className={`fchip ms-zip ${value === 'All' && !invalid ? 'is-muted' : ''} ${invalid ? 'is-invalid' : ''}`}>
+      <span className="fchip-label">Zip</span>
+      <input className="fchip-input" type="text" inputMode="numeric" placeholder="All" value={text}
+        onChange={e => { setText(e.target.value); setInvalid(false); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(text) } else if (e.key === 'Escape') { setOpen(false) } }}
+        onBlur={() => commit(text)} />
+      {open && matches.length > 0 && (
+        <div className="ms-zip-menu">
+          {matches.map(z => <div key={z} className="ms-zip-opt" onMouseDown={e => { e.preventDefault(); commit(z) }}>{z}</div>)}
+        </div>
+      )}
+    </label>
+  )
+}
+
+function MSFilterStrip({ tf, setTf, filters, setFilter, onPresent, loading, options }) {
+  const subMarketOpts = ['All', ...((options && options.subMarkets) || [])]
   return (
     <div className="ms-filters is-stacked">
       <div className="ms-filter-row">
         <MSChip label="County" value={filters.county} options={MS_FILTER_OPTS.county} onChange={v => setFilter('county', v)} muted={filters.county === 'All'} />
-        <MSChip label="Sub-Market" value={filters.subMarket} options={MS_FILTER_OPTS.subMarket} onChange={v => setFilter('subMarket', v)} muted={filters.subMarket === 'All'} />
-        <MSChip label="Zip" value={filters.zip} options={MS_FILTER_OPTS.zip} onChange={v => setFilter('zip', v)} muted={filters.zip === 'All'} />
+        <MSChip label="Sub-Market" value={filters.subMarket} options={subMarketOpts} onChange={v => setFilter('subMarket', v)} muted={filters.subMarket === 'All'} />
+        <MSZipInput value={filters.zip} options={(options && options.zips) || []} onChange={v => setFilter('zip', v)} />
         <MSUnitRange min={filters.unitMin} max={filters.unitMax} onMin={v => setFilter('unitMin', v)} onMax={v => setFilter('unitMax', v)} />
         <MSChip label="Era" value={filters.era} options={MS_FILTER_OPTS.era} onChange={v => setFilter('era', v)} muted={filters.era === 'All'} />
         <span className="ms-filter-div"></span>
@@ -204,35 +242,45 @@ function MSSNCell({ l, v }) {
   return <div className="sn-cell"><span className="sn-l">{l}</span><span className="sn-v">{v}</span></div>
 }
 
-function MSNowStrip() {
+// Live "right now" stats, computed from the filtered comp pool (snapshotData.now).
+// Point-in-time counts have no reliable prior-window baseline in the comp data (status is
+// current-only), so no vs-prior deltas are shown here — just the real current figures.
+const _nz = v => v == null || isNaN(v)
+const nfK   = v => _nz(v) ? '—' : '$' + Math.round(v) + 'k'
+const nfPct = v => _nz(v) ? '—' : v.toFixed(2) + '%'
+const nfX   = v => _nz(v) ? '—' : v.toFixed(1) + '×'
+const nfD   = v => _nz(v) ? '—' : Math.round(v) + 'd'
+
+function MSNowStrip({ now }) {
   const [expanded, setExpanded] = useState(false)
+  const a = now?.active, u = now?.uc, moi = now?.monthsOfInventory
   return (
     <div className={`snap-now ${expanded ? 'is-expanded' : ''}`} onClick={() => setExpanded(e => !e)}>
       <p className="snap-now-label">Right now</p>
       <div className="snap-now-group">
         <div className="snap-now-head">
-          <span className="snap-now-n">12</span>
-          <span className="snap-now-status">Active listings <em className="neg">−6 vs 90d</em></span>
+          <span className="snap-now-n">{a ? a.count : '—'}</span>
+          <span className="snap-now-status">Active listings</span>
         </div>
         <div className="snap-now-metrics">
-          <MSSNCell l="Ask $/Unit" v="$355k" /><MSSNCell l="Ask Cap" v="5.10%" />
-          <MSSNCell l="Ask GRM" v="13.5×" /><MSSNCell l="Med DOM" v="61d" />
+          <MSSNCell l="Ask $/Unit" v={nfK(a?.ppu)} /><MSSNCell l="Ask Cap" v={nfPct(a?.cap)} />
+          <MSSNCell l="Ask GRM" v={nfX(a?.grm)} /><MSSNCell l="Med DOM" v={nfD(a?.dom)} />
         </div>
       </div>
       <div className="snap-now-group">
         <div className="snap-now-head">
-          <span className="snap-now-n">4</span>
-          <span className="snap-now-status">Under contract <em className="pos">+1</em></span>
+          <span className="snap-now-n">{u ? u.count : '—'}</span>
+          <span className="snap-now-status">Under contract</span>
         </div>
         <div className="snap-now-metrics">
-          <MSSNCell l="$/Unit" v="$341k" /><MSSNCell l="Cap" v="5.50%" />
-          <MSSNCell l="GRM" v="13.0×" /><MSSNCell l="Days→UC" v="29d" />
+          <MSSNCell l="$/Unit" v={nfK(u?.ppu)} /><MSSNCell l="Cap" v={nfPct(u?.cap)} />
+          <MSSNCell l="GRM" v={nfX(u?.grm)} /><MSSNCell l="Days→UC" v={nfD(u?.daysToUC)} />
         </div>
       </div>
       <div className="snap-now-group snap-now-supply">
         <div className="snap-now-head">
-          <span className="snap-now-n">2.1<span>mo</span></span>
-          <span className="snap-now-status">Months of supply <em className="pos">tightening</em></span>
+          <span className="snap-now-n">{_nz(moi) ? '—' : moi.toFixed(1)}<span>mo</span></span>
+          <span className="snap-now-status">Months of supply</span>
         </div>
       </div>
       <div className="snap-now-spacer"></div>
@@ -240,7 +288,7 @@ function MSNowStrip() {
         <span className="snap-now-toggle-chev">⌄</span>{expanded ? 'Hide deal stats' : 'Show deal stats'}
       </button>
       <div className="snap-now-spacer"></div>
-      <span className="snap-now-meta">Matched 48 properties · refreshed 2m ago</span>
+      <span className="snap-now-meta">Matched {now ? now.matchedCount.toLocaleString() : '—'} comps in scope</span>
     </div>
   )
 }
@@ -522,6 +570,8 @@ export default function MarketSnapshot() {
   // MS_METRICS = synchronous placeholder so the UI renders instantly; real
   // comp-derived data from fetchSnapshotData replaces it once it resolves.
   const [metrics, setMetrics] = useState(MS_METRICS)
+  const [now, setNow] = useState(null)
+  const [filterOptions, setFilterOptions] = useState({ subMarkets: [], zips: [] })
   const [loading, setLoading] = useState(true)
 
   // Fetch real comp data on mount and whenever filters change (debounced so
@@ -531,7 +581,7 @@ export default function MarketSnapshot() {
     setLoading(true)
     const t = setTimeout(() => {
       fetchSnapshotData(filters)
-        .then(data => { if (!cancelled) setMetrics(data) })
+        .then(data => { if (!cancelled) { setMetrics(data.metrics); setNow(data.now); if (data.options) setFilterOptions(data.options) } })
         .catch(err => { if (!cancelled) console.error('Snapshot data load failed:', err) })
         .finally(() => { if (!cancelled) setLoading(false) })
     }, 250)
@@ -549,8 +599,8 @@ export default function MarketSnapshot() {
         <MSPresent metrics={metrics} metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} onBack={() => setView('board')} />
       ) : (
         <>
-          <MSFilterStrip tf={tf} setTf={setTf} filters={filters} setFilter={setFilter} onPresent={() => setView('present')} loading={loading} />
-          <MSNowStrip />
+          <MSFilterStrip tf={tf} setTf={setTf} filters={filters} setFilter={setFilter} onPresent={() => setView('present')} loading={loading} options={filterOptions} />
+          <MSNowStrip now={now} />
           {view === 'board' && (
             <MSBoard metrics={metrics} metricKey={metricKey} setMetricKey={setMetricKey} tf={tf} split={split} setSplit={setSplit} onOpenFocus={() => openFocus()} />
           )}

@@ -277,9 +277,55 @@ export async function fetchSnapshotData(filters = {}) {
     }
   }
 
-  return MS_METRICS.map(m => {
+  const metrics = MS_METRICS.map(m => {
     const out = { ...m, series: seriesFor(m.key) }
     if (m.ask && _AVAL[m.key]) out.ask = soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_AVAL[m.key]))))
     return out
   })
+
+  // ---- "Right now" stats — current Active / Under-Contract pools + months of supply ----
+  // Point-in-time on CURRENT status; computed from the SAME scoped pool as the sold metrics,
+  // so they respond to every scope filter (county / sub-market / zip / era / unit range).
+  // Asking-based pricing uses listing_price (these haven't sold yet), guarded by the same
+  // exclusion flags as the sold formulas.
+  const _ask_ppu = c => (c.listing_price && c.num_units)   ? (c.listing_price / c.num_units) / 1000 : null  // $k/unit
+  const _ask_cap = c => (!c.x_noi && c.adv_noi > 0 && c.listing_price) ? (c.adv_noi / c.listing_price) * 100 : null
+  const _ask_grm = c => (!c.x_agi && c.adv_agi > 0 && c.listing_price) ? c.listing_price / c.adv_agi : null
+
+  const activePool = scoped.filter(c => c.status === 'Active')
+  const ucPool     = scoped.filter(c => c.status === 'Under Contract' || c.status === 'Pending')
+
+  const active = {
+    count: activePool.length,
+    ppu:   _median(activePool.map(_ask_ppu)),
+    cap:   _median(activePool.map(_ask_cap)),
+    grm:   _median(activePool.map(_ask_grm)),
+    dom:   _median(activePool.map(_activeDom)),
+  }
+  const uc = {
+    count:    ucPool.length,
+    ppu:      _median(ucPool.map(_ask_ppu)),
+    cap:      _median(ucPool.map(_ask_cap)),
+    grm:      _median(ucPool.map(_ask_grm)),
+    daysToUC: _median(ucPool.map(c => _daysBetween(c.listing_date, c.pending_date))),
+  }
+
+  // Months of supply = current active inventory ÷ monthly sold pace over the trailing 12 months.
+  const _now = new Date()
+  const _yearAgo = new Date(_now.getFullYear() - 1, _now.getMonth(), _now.getDate())
+  const soldLast12 = scoped.filter(c => { if (c.status !== 'Sold') return false; const d = _parseDt(c.sale_date); return d && d >= _yearAgo && d <= _now }).length
+  const monthlyPace = soldLast12 / 12
+  const monthsOfInventory = monthlyPace > 0 ? active.count / monthlyPace : null
+
+  const now = { active, uc, monthsOfInventory, matchedCount: scoped.length }
+
+  // Distinct filter option lists from the UNFILTERED pool (so options never disappear when a
+  // filter is applied). Used to populate the Sub-Market dropdown and the Zip type-ahead.
+  const _uniqSorted = arr => Array.from(new Set(arr.filter(v => v != null && String(v).trim() !== '').map(String))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const options = {
+    subMarkets: _uniqSorted(all.map(c => c.sub_market)),
+    zips:       _uniqSorted(all.map(c => c.zip_code)),
+  }
+
+  return { metrics, now, options }
 }
