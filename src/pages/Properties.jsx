@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabase'
 import Papa from 'papaparse'
+import { deleteProposalCascade } from '../utils/deleteProposal'
 
 const ACTIVE_STAGES = ['Prospect', 'Proposal', 'Exclusive Rep', 'Active', 'Under Contract']
 
@@ -521,6 +522,42 @@ function PropertyDetail({ propertyId, onBack }) {
     setEditing(true)
   }
 
+  // Delete a property record. Blocked while it has proposals (those carry the deal models) —
+  // delete/move them first. On delete: remove photos from storage, unlink any comps that point
+  // to this property (comps are shared market data, so they're kept), then delete the row.
+  async function deleteProperty() {
+    if (proposals.length > 0) {
+      setMsg(`Can't delete — this property has ${proposals.length} proposal${proposals.length > 1 ? 's' : ''}. Delete or move ${proposals.length > 1 ? 'them' : 'it'} first.`)
+      setTimeout(() => setMsg(''), 6000)
+      return
+    }
+    const name = property.property_name || property.street || 'this property'
+    if (!window.confirm(`Delete "${name}"?\n\nRemoves the property record and its photos. Linked comps stay in the database (they'll be unlinked). This cannot be undone.`)) return
+    const photos = property.photos || []
+    if (photos.length) {
+      try {
+        const paths = photos.map(url => { const parts = String(url).split('/property-photos/'); return parts.length === 2 ? decodeURIComponent(parts[1]) : null }).filter(Boolean)
+        if (paths.length) await supabase.storage.from('property-photos').remove(paths)
+      } catch (e) { console.warn('photo remove:', e) }
+    }
+    await supabase.from('comps').update({ property_id: null }).eq('property_id', propertyId)
+    const { error } = await supabase.from('properties').delete().eq('id', propertyId)
+    if (error) { console.error(error); setMsg('Delete failed: ' + error.message); setTimeout(() => setMsg(''), 4000); return }
+    onBack()
+  }
+
+  // Inline delete of a proposal from the property record (cascades its child data). Reloads so
+  // the proposals list + count update — clearing them is what unblocks deleting the property.
+  async function deleteProposalFromProperty(p) {
+    const label = fC(p.asking_price) || 'this proposal'
+    if (!window.confirm(`Delete proposal "${label}" (${p.stage})?\n\nRemoves its financials, dashboard, rent roll, comp selections, and OM. The property and comps are not affected. This cannot be undone.`)) return
+    const { error } = await deleteProposalCascade(p.id)
+    if (error) { console.error(error); setMsg('Delete failed: ' + error.message); setTimeout(() => setMsg(''), 4000); return }
+    setMsg('Proposal deleted')
+    setTimeout(() => setMsg(''), 3000)
+    loadAll()
+  }
+
   async function saveEdit() {
     setSaving(true)
     const updates = {}
@@ -671,6 +708,7 @@ function PropertyDetail({ propertyId, onBack }) {
           <div className="pr-hero-actions">
             <button className="btn btn-secondary" onClick={openEdit}>Edit</button>
             <button className="btn btn-primary" onClick={() => navigate(`/proposals?new&property=${propertyId}`)}>+ New proposal</button>
+            <button className="btn btn-danger" onClick={deleteProperty}>Delete</button>
           </div>
           {msg && <p style={{ fontSize: 12, color: 'var(--pos)', marginTop: 8 }}>{msg}</p>}
         </div>
@@ -724,7 +762,10 @@ function PropertyDetail({ propertyId, onBack }) {
                       <div className="pr-mini-l">{fC(p.asking_price)}</div>
                       <div className="pr-mini-sub">{p.stage}{p.date_created ? ` · ${p.date_created}` : ''}</div>
                     </div>
-                    <span className={`ap-badge ${stageBadgeClass(p.stage)}`}>{p.stage}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className={`ap-badge ${stageBadgeClass(p.stage)}`}>{p.stage}</span>
+                      <button className="pr-mini-del" title="Delete proposal" onClick={e => { e.stopPropagation(); deleteProposalFromProperty(p) }}>✕</button>
+                    </div>
                   </div>
                 ))}
               </div>

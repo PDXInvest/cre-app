@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { runOperatingModel, buildGA, buildT12Expenses } from '../utils/operatingModel'
 import { supabase } from '../supabase'
 import { generateOmDocument } from '../utils/omSerialize'
+import { deleteProposalCascade } from '../utils/deleteProposal'
 import RentRoll from './RentRoll'
 import Financials from './Financials'
 import PropertyDashboard from './PropertyDashboard'
@@ -49,7 +50,21 @@ export default function ProposalDetail() {
   const [opModel,        setOpModel]        = useState(null)
   const [opModelError,   setOpModelError]   = useState(null)
 
+  const [deleting, setDeleting] = useState(false)
+
   useEffect(() => { loadProposal() }, [proposalId])
+
+  // Delete this proposal and all of its child data (financials, dashboard, rent roll, comp
+  // selections, OM). The parent property and shared comps are untouched.
+  async function deleteProposal() {
+    const name = proposal?.properties?.street || 'this proposal'
+    if (!window.confirm(`Delete the proposal for "${name}"?\n\nThis permanently removes its financials, dashboard, rent roll, comp selections, and OM. The property and comps are not affected. This cannot be undone.`)) return
+    setDeleting(true)
+    setMsg('Deleting…')
+    const { error } = await deleteProposalCascade(proposalId)
+    if (error) { console.error(error); setMsg('Delete failed: ' + error.message); setDeleting(false); setTimeout(() => setMsg(''), 4000); return }
+    navigate('/proposals')
+  }
 
   async function loadProposal() {
     setLoading(true)
@@ -249,6 +264,7 @@ export default function ProposalDetail() {
           {NEW_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <button className="btn btn-primary" onClick={generateOm} disabled={genningOm}>{genningOm ? 'Generating…' : 'Open OM →'}</button>
+        <button className="btn btn-danger" onClick={deleteProposal} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button>
       </div>
 
       <div className="uw-nav">

@@ -156,6 +156,9 @@
 .btn-ghost:hover:not(:disabled) { color: var(--ink); }
 .btn-danger { background: transparent; color: var(--neg); border-color: var(--hairline-2); }
 .btn-danger:hover:not(:disabled) { background: var(--neg); color: #fff; border-color: var(--neg); }
+/* small inline delete (✕) used in mini lists e.g. a property's proposals */
+.pr-mini-del { background: none; border: none; color: var(--mute-2); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 6px; border-radius: 4px; transition: background .12s, color .12s; }
+.pr-mini-del:hover { background: var(--neg); color: #fff; }
 
 /* ---------- PAGE HEADER ---------- */
 .ap-head {
