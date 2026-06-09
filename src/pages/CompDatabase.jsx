@@ -101,6 +101,7 @@ export default function CompDatabase() {
   const [typeFilter, setTypeFilter] = useState('All')
   const [sortCol, setSortCol] = useState('sale_date')
   const [selectedId, setSelectedId] = useState(null)
+  const [lastImport, setLastImport] = useState(null)   // { at, count } of most recent CSV import
 
   useEffect(() => { loadComps() }, [])
 
@@ -118,6 +119,10 @@ export default function CompDatabase() {
       else from += pageSize
     }
     setComps(all.map(addCalcFields))
+    try {
+      const { data: liRow } = await supabase.from('app_settings').select('value').eq('key', 'comps_last_import').maybeSingle()
+      setLastImport(liRow?.value || null)
+    } catch (e) { console.warn('last-import load:', e) }
     setLoading(false)
   }
 
@@ -137,6 +142,14 @@ export default function CompDatabase() {
       if (error) { console.error(error); setMsg('Import error — check console'); setImporting(false); return }
     }
     const matched = await autoMatchCompsToProperties(records)
+    // Stamp the import time (select-then-write, mirrors upsertDash — no reliance on a unique constraint).
+    try {
+      const importedAt = new Date().toISOString()
+      const stamp = { at: importedAt, count: records.length }
+      const { data: ex } = await supabase.from('app_settings').select('key').eq('key', 'comps_last_import').maybeSingle()
+      if (ex) await supabase.from('app_settings').update({ value: stamp, updated_at: importedAt }).eq('key', 'comps_last_import')
+      else    await supabase.from('app_settings').insert({ key: 'comps_last_import', value: stamp, updated_at: importedAt })
+    } catch (e) { console.warn('last-import stamp:', e) }
     setMsg(`${records.length} comps imported` + (matched ? ` · ${matched} linked to properties` : ''))
     setTimeout(() => setMsg(''), 5000)
     setShowPaste(false)
@@ -223,7 +236,7 @@ export default function CompDatabase() {
         <div>
           <p className="ap-head-eyebrow">Comparable sales</p>
           <h1 className="ap-head-title">Comp Database</h1>
-          <p className="ap-head-meta"><b>{comps.length.toLocaleString()}</b> comps · feeds every proposal{msg && <span style={{ color: 'var(--pos)', marginLeft: 10 }}>{msg}</span>}</p>
+          <p className="ap-head-meta"><b>{comps.length.toLocaleString()}</b> comps · feeds every proposal{lastImport?.at && <> · Last import {new Date(lastImport.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>}{msg && <span style={{ color: 'var(--pos)', marginLeft: 10 }}>{msg}</span>}</p>
         </div>
         <div className="ap-head-actions">
           <button className="btn btn-primary" onClick={() => setShowPaste(p => !p)}>{comps.length ? '+ Update comps' : 'Import comps'}</button>
