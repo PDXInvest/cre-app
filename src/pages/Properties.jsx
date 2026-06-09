@@ -83,6 +83,7 @@ export default function Properties() {
   const [showPropImport, setShowPropImport] = useState(false)
   const [propPasteText, setPropPasteText] = useState('')
   const [importing, setImporting] = useState(false)
+  const importFileRef = useRef()
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
@@ -108,14 +109,29 @@ export default function Properties() {
     setLoading(false)
   }
 
+  // Read a chosen .csv file and run it through the same importer (avoids paste/clipboard
+  // truncation of large exports — the cause of silently-dropped rows).
+  function handleImportFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => { importProperties(String(ev.target.result || '')); if (importFileRef.current) importFileRef.current.value = '' }
+    reader.onerror = () => { setMsg('Could not read file'); setTimeout(() => setMsg(''), 4000); if (importFileRef.current) importFileRef.current.value = '' }
+    reader.readAsText(file)
+  }
+
   async function importProperties(text) {
     setImporting(true)
-    const clean = text.replace(/^﻿/, '')
+    const clean = (text || '').replace(/^﻿/, '')
     const { data: rows } = Papa.parse(clean, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() })
+    const parsed = rows || []
+    if (!parsed.length) { setMsg('No rows found — check the file/paste'); setTimeout(() => setMsg(''), 4000); setImporting(false); return }
+    const withId = parsed.filter(r => r['Property: ID'] || r['Property ID'])
+    const skipped = parsed.length - withId.length
     const seen = new Map()
-    rows.filter(r => r['Property: ID'] || r['Property ID']).forEach(r => seen.set(r['Property: ID'] || r['Property ID'], r))
+    withId.forEach(r => seen.set(r['Property: ID'] || r['Property ID'], r))
     const unique = Array.from(seen.values())
-    const dupes = rows.length - unique.length
+    const dupes = withId.length - unique.length
     const g = (r, ...keys) => { for (const k of keys) { if (r[k] != null && r[k] !== '') return r[k] } return null }
     const records = unique.map(r => ({
       sf_property_id: g(r, 'Property: ID', 'Property ID'),
@@ -154,7 +170,7 @@ export default function Properties() {
       if (error) { console.error(error); setMsg(`Import error at row ${i}`); setImporting(false); return }
     }
     const matched = await autoMatchCompsToProperties(records)
-    setMsg(`${records.length.toLocaleString()} properties imported` + (dupes ? ` (${dupes.toLocaleString()} duplicates skipped)` : '') + (matched ? ` · ${matched} comps linked` : ''))
+    setMsg(`${records.length.toLocaleString()} properties imported` + (dupes ? ` · ${dupes.toLocaleString()} duplicates skipped` : '') + (skipped ? ` · ${skipped.toLocaleString()} row${skipped > 1 ? 's' : ''} skipped (missing Property ID)` : '') + (matched ? ` · ${matched} comps linked` : ''))
     setTimeout(() => setMsg(''), 6000)
     setShowPropImport(false)
     setPropPasteText('')
@@ -247,11 +263,18 @@ export default function Properties() {
       {showPropImport && (
         <div className="ap-import">
           <div className="ap-import-box">
-            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8 }}>Open your property CSV in TextEdit → Cmd+A → Cmd+C → paste below:</p>
+            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8 }}><b>Upload your property CSV file</b> — recommended (handles the full export; avoids paste truncation).</p>
+            <input ref={importFileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={handleImportFile} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button className="btn btn-primary" onClick={() => importFileRef.current?.click()} disabled={importing}>
+                {importing ? 'Importing…' : 'Choose CSV file…'}
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8, paddingTop: 12, borderTop: '1px solid var(--hairline)' }}>Or paste CSV text (TextEdit → Cmd+A → Cmd+C) — fine for small batches:</p>
             <textarea value={propPasteText} onChange={e => setPropPasteText(e.target.value)} placeholder="Paste property CSV here…" />
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="btn btn-primary" onClick={() => importProperties(propPasteText)} disabled={importing || !propPasteText.trim()}>
-                {importing ? 'Importing…' : 'Import'}
+                {importing ? 'Importing…' : 'Import pasted text'}
               </button>
               <button className="btn btn-secondary" onClick={() => { setShowPropImport(false); setPropPasteText('') }}>Cancel</button>
             </div>

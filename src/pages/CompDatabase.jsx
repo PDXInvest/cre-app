@@ -102,6 +102,7 @@ export default function CompDatabase() {
   const [sortCol, setSortCol] = useState('sale_date')
   const [selectedId, setSelectedId] = useState(null)
   const [lastImport, setLastImport] = useState(null)   // { at, count } of most recent CSV import
+  const importFileRef = useRef()
 
   useEffect(() => { loadComps() }, [])
 
@@ -126,12 +127,26 @@ export default function CompDatabase() {
     setLoading(false)
   }
 
+  // Read a chosen .csv file and run it through the same importer (avoids paste/clipboard
+  // truncation of large exports — the cause of silently-dropped rows).
+  function handleImportFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => { importComps(String(ev.target.result || '')); if (importFileRef.current) importFileRef.current.value = '' }
+    reader.onerror = () => { setMsg('Could not read file'); setTimeout(() => setMsg(''), 4000); if (importFileRef.current) importFileRef.current.value = '' }
+    reader.readAsText(file)
+  }
+
   async function importComps(text) {
     setImporting(true)
     // CSV resilience: strip UTF-8 BOM + trim headers (Salesforce export quirks).
-    const clean = text.replace(/^﻿/, '')
+    const clean = (text || '').replace(/^﻿/, '')
     const { data: rows } = Papa.parse(clean, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() })
-    const records = rows.map(calcFields).filter(r => r.sale_id)
+    const parsed = rows || []
+    if (!parsed.length) { setMsg('No rows found — check the file/paste'); setTimeout(() => setMsg(''), 4000); setImporting(false); return }
+    const records = parsed.map(calcFields).filter(r => r.sale_id)
+    const skipped = parsed.length - records.length
     // NOTE (deferred · remodel §5): re-import upserts by sale_id and will overwrite any
     // manual inline edits. The CSV-vs-manual merge/conflict rule is intentionally deferred
     // until the move off Salesforce — revisit then.
@@ -150,7 +165,7 @@ export default function CompDatabase() {
       if (ex) await supabase.from('app_settings').update({ value: stamp, updated_at: importedAt }).eq('key', 'comps_last_import')
       else    await supabase.from('app_settings').insert({ key: 'comps_last_import', value: stamp, updated_at: importedAt })
     } catch (e) { console.warn('last-import stamp:', e) }
-    setMsg(`${records.length} comps imported` + (matched ? ` · ${matched} linked to properties` : ''))
+    setMsg(`${records.length} comps imported` + (matched ? ` · ${matched} linked to properties` : '') + (skipped ? ` · ${skipped} row${skipped > 1 ? 's' : ''} skipped (missing Sale ID)` : ''))
     setTimeout(() => setMsg(''), 5000)
     setShowPaste(false)
     setPasteText('')
@@ -267,11 +282,18 @@ export default function CompDatabase() {
       {showPaste && (
         <div className="ap-import">
           <div className="ap-import-box">
-            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8 }}>Open your Salesforce CSV in TextEdit → Cmd+A → Cmd+C → paste below:</p>
+            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8 }}><b>Upload your Salesforce CSV file</b> — recommended (handles the full export; avoids paste truncation).</p>
+            <input ref={importFileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={handleImportFile} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button className="btn btn-primary" onClick={() => importFileRef.current?.click()} disabled={importing}>
+                {importing ? 'Importing…' : 'Choose CSV file…'}
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--slate)', marginBottom: 8, paddingTop: 12, borderTop: '1px solid var(--hairline)' }}>Or paste CSV text (TextEdit → Cmd+A → Cmd+C) — fine for small batches:</p>
             <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder="Paste CSV content here…" />
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="btn btn-primary" onClick={() => importComps(pasteText)} disabled={importing || !pasteText.trim()}>
-                {importing ? 'Importing…' : 'Import'}
+                {importing ? 'Importing…' : 'Import pasted text'}
               </button>
               <button className="btn btn-secondary" onClick={() => { setShowPaste(false); setPasteText('') }}>Cancel</button>
             </div>
