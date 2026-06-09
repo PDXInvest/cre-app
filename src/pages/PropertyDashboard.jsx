@@ -225,16 +225,23 @@ export default function PropertyDashboard({ proposal, benchStats, benchDateRange
   // ── T-12 (with group fallback) ──────────────────────────────────────────────
   const t12M = Object.values(finRow?.t12_monthly || {})
   const t12c = code => t12M.reduce((s,m) => s+nv(m?.[code]), 0)
-  const t12gs= (grp,codes) => { const ds=codes.reduce((s,c) => s+t12c(c),0); return ds!==0?ds:t12c(grp) }
+  // Trust detail codes whenever any are present in any month, even if they sum to 0 — only fall
+  // back to the legacy group-level value when no detail exists at all (ignores stale group strays).
+  const t12gs= (grp,codes) => { const hasDetail=codes.some(c => t12M.some(m => m?.[c]!=null)); const ds=codes.reduce((s,c) => s+t12c(c),0); return hasDetail?ds:t12c(grp) }
   const t12RawGross = Object.entries(INCOME_GROUP_DETAIL).reduce((s,[g,cs]) => s+t12gs(g,cs), 0)
-  const t12Collected = t12gs('collected_rent',['collected_rent'])
-  const t12EGR = t12RawGross - t12Collected*ga('vacancy_rate') - t12Collected*ga('concessions_pct')
+  // EGR = gross income groups + actual general vacancy line (mirrors Financials tab T-12 column).
+  // T-12 is an actuals column — do NOT apply modeled vacancy_rate/concessions_pct here.
+  const t12EGR = t12RawGross + t12c('_gen_vacancy')
   const t12Exp = Object.entries(EXPENSE_GROUP_DETAIL).reduce((s,[g,cs]) => s+t12gs(g,cs), 0)
 
   // ── Last Year ───────────────────────────────────────────────────────────────
   const lyIS = finRow?.income_statement?.[String(new Date().getFullYear()-1)] || {}
-  const lyGross = Object.entries(INCOME_GROUP_DETAIL).reduce((s,[g,cs]) => { const d=cs.reduce((a,c)=>a+nv(lyIS[c]),0); return s+(d!==0?d:nv(lyIS[g])) }, 0)
-  const lyExp   = Object.entries(EXPENSE_GROUP_DETAIL).reduce((s,[g,cs]) => { const d=cs.reduce((a,c)=>a+nv(lyIS[c]),0); return s+(d!==0?d:nv(lyIS[g])) }, 0)
+  // Trust detail items whenever any are present (key exists), even if they sum to 0 — only fall
+  // back to the legacy group-level value when no detail exists. Mirrors Financials.jsx sumGroup so
+  // the Pricing tab's "Last Year" matches the Financials tab exactly (e.g. ignores a stray misc:1).
+  const lyGroup = (g,cs) => cs.some(c => lyIS[c] != null) ? cs.reduce((a,c)=>a+nv(lyIS[c]),0) : nv(lyIS[g])
+  const lyGross = Object.entries(INCOME_GROUP_DETAIL).reduce((s,[g,cs]) => s+lyGroup(g,cs), 0) + nv(lyIS['_gen_vacancy'])
+  const lyExp   = Object.entries(EXPENSE_GROUP_DETAIL).reduce((s,[g,cs]) => s+lyGroup(g,cs), 0)
 
   // ── Projection engine ───────────────────────────────────────────────────────
   const totalUnits = rrUnits.length || nv(pr.total_units)

@@ -198,6 +198,16 @@ export default function ProposalDetail() {
     setTimeout(() => setMsg(''), 2000)
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // ⚑ OM REWORK ENTRY POINT (Priority 3) — START HERE.
+  // Current architecture: serialize proposal → proposals.om_json → templated runtime
+  // renderer at /om (public/om/*). Planned replacement: unique-URL hosted HTML page
+  // per proposal (static generation), with PDF export as a secondary output.
+  // Touch points to revisit when reworking:
+  //   • this generateOm() flow + src/utils/omSerialize.js (doc serialization)
+  //   • public/om/ (om-render.jsx, om-templates.jsx, om-data.js) — runtime renderer
+  //   • api/export-om-pdf.js (Browserless PDF export)
+  // ════════════════════════════════════════════════════════════════════════════
   async function generateOm() {
     // Open the tab synchronously inside the click gesture, THEN serialize/save and
     // point it at the OM. window.open() after an await is treated as non-user-initiated

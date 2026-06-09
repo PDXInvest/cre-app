@@ -388,7 +388,11 @@ export function buildT12Expenses(proposalFinancials) {
 
   function sumGroup(grpCode, detailCodes) {
     const ds = detailCodes.reduce((s, c) => s + months.reduce((ms, m) => ms + (Number(m?.[c]) || 0), 0), 0)
-    if (ds !== 0) return ds
+    // If any detail code has been entered in any month, trust the detail sum even when it's 0.
+    // Only fall back to the legacy group-level value when no detail exists at all — prevents a
+    // stale group-level value (e.g. a stray `misc: 1`) from resurfacing over real 0s.
+    const hasDetail = detailCodes.some(c => months.some(m => m?.[c] != null))
+    if (hasDetail) return ds
     // group-level fallback
     return months.reduce((s, m) => s + (Number(m?.[grpCode]) || 0), 0)
   }

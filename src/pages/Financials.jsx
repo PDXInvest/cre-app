@@ -332,7 +332,13 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
         if (code === 'property_taxes') return getT12ValForGroup('property_taxes') * Math.pow(1 + ga('property_tax_growth'), expYears + 1)
         if (code === 'other_taxes')    return getT12ValForGroup('other_taxes') * Math.pow(1 + ga('controllable_growth'), expYears + 1)
         if (code === 'market_rent')    return annualMarket * Math.pow(1 + ga('market_rent_growth'), stabYearIdx)
-        if (code === 'loss_to_lease')  return 0
+        if (code === 'loss_to_lease')  {
+          // Residual below-market gap at stabilization (units reach ≥90% market under the rent cap).
+          // Reconciles the column: Market + Loss-to-Lease = Collected (mirrors the Scheduled column).
+          // Presentational only — collected_rent/NOI come from the operating model and are unchanged.
+          const mktStab = annualMarket * Math.pow(1 + ga('market_rent_growth'), stabYearIdx)
+          return (sy.grossRent || 0) - mktStab
+        }
         if (code === 'parking')        return getT12ValForGroup('parking') * (1 + ga('parking_growth'))
         if (code === 'storage')        return getT12ValForGroup('storage') * (1 + ga('storage_growth'))
         if (code === 'other_income')   return getT12ValForGroup('other_income') * (1 + ga('other_income_growth'))
@@ -419,10 +425,15 @@ export default function Financials({ proposal, opModel, opModelError, onRecomput
     const auto = getAutoCalcValue(period, group.code)
     if (auto != null) return auto
     if (period === 't12') return t12GroupSum(group)
-    const detailSum = group.items.reduce((s, item) => s + (Number(data?.income_statement?.[period]?.[item.code]) || 0), 0)
+    const periodData = data?.income_statement?.[period] || {}
+    const detailSum = group.items.reduce((s, item) => s + (Number(periodData[item.code]) || 0), 0)
       + sumCustom(period, group.code)
-    if (detailSum !== 0) return detailSum
-    return Number(data?.income_statement?.[period]?.[group.code]) || 0
+    // If any detail item (or custom row) has been entered, trust the detail sum even when it's 0.
+    // Only fall back to the legacy group-level value when no detail data exists at all — this
+    // prevents a stale group-level value (e.g. a stray `misc: 1`) from resurfacing over real 0s.
+    const hasDetail = group.items.some(item => periodData[item.code] != null) || getCustomItems(group.code).length > 0
+    if (hasDetail) return detailSum
+    return Number(periodData[group.code]) || 0
   }
 
   /* ── Custom items (defined in T-12 monthly, flow to annual) ── */
