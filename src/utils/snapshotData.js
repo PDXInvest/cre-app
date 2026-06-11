@@ -38,14 +38,16 @@ export const MS_TF_LABEL = { '30d': '30 days', '90d': '90 days', '180d': '180 da
 export const MS_TF_PRIOR = { '30d': 'prior 30d', '90d': 'prior 90d', '180d': 'prior 180d', '365d': 'prior year' }
 export const MS_TF_N = { '30d': 3, '90d': 8, '180d': 15, '365d': 31 }
 
-/* Comparison dimensions — "split by". */
+/* Comparison dimensions — "split by". Real data attaches m.split[key] =
+   { series, cohorts } computed from actual cohort pools in fetchSnapshotData;
+   `factor` only drives the pre-fetch placeholder fallback. */
 export const MS_SPLITS = [
-  { key: 'asksold',   label: 'Asking vs Sold',        primary: 'Sold',        comp: 'Asking',        factor: 1.03 },
-  { key: 'cash',      label: 'Cash vs Financed',      primary: 'Financed',    comp: 'All cash',      factor: 0.965 },
-  { key: 'buyer',     label: 'Owner-occ vs Investor', primary: 'Investor',    comp: 'Owner-occ',     factor: 1.02 },
-  { key: 'county',    label: 'vs County',             primary: 'This filter', comp: 'County avg',    factor: 0.945 },
-  { key: 'submarket', label: 'vs Sub-market',         primary: 'This filter', comp: 'Sub-market',    factor: 0.985 },
-  { key: 'era',       label: 'vs Era',                primary: 'Pre-1940',    comp: 'All eras',      factor: 1.045 },
+  { key: 'asksold',   label: 'Asking vs Sold',        primary: 'Sold',        comp: 'Asking',         factor: 1.03 },
+  { key: 'cash',      label: 'Cash vs Financed',      primary: 'This filter', comp: 'All cash',       factor: 0.965 },
+  { key: 'buyer',     label: 'Owner-occ vs Investor', primary: 'This filter', comp: 'Owner-occ',      factor: 1.02 },
+  { key: 'county',    label: 'vs County',             primary: 'This filter', comp: 'County avg',     factor: 0.945 },
+  { key: 'submarket', label: 'vs Sub-market',         primary: 'This filter', comp: 'Sub-market avg', factor: 0.985 },
+  { key: 'era',       label: 'vs Era',                primary: 'This filter', comp: 'All eras',       factor: 1.045 },
 ]
 
 export const MS_METRICS = [
@@ -182,26 +184,46 @@ export function msDelta(m, a, b) {
   return { txt, dir, arrow }
 }
 
-/* derived comparison series for a split dimension */
+/* Comparison series for a split dimension. With real data (m.split present),
+   the overlay is the actual cohort's quarterly series — or null when the
+   comparison doesn't exist for this metric (e.g. Asking-side DOM), which hides
+   the overlay rather than faking one. The factor path only serves the
+   pre-fetch placeholder state. */
 export function msCompSeries(m, splitKey) {
   const sp = MS_SPLITS.find(s => s.key === splitKey)
   if (!sp) return null
+  if (m.split) {
+    const d = m.split[splitKey]
+    if (!d || !d.series || d.series.every(v => v == null)) return null
+    return { label: sp.comp, primaryLabel: sp.primary, data: d.series }
+  }
   if (splitKey === 'asksold' && m.ask) return { label: sp.comp, primaryLabel: sp.primary, data: m.ask }
   return { label: sp.comp, primaryLabel: sp.primary, data: m.series.map(v => (v == null || !isFinite(v)) ? null : v * sp.factor) }
 }
 
-/* comparison bars (Subject vs other geographies/cohorts) for the active split */
+/* Comparison bars for the active split — real cohort medians over the current
+   timeframe window (placeholder multipliers only before the first fetch). */
 export function msCompBars(m, tf, splitKey) {
-  const { cur } = msStats(m, tf)
   const sp = MS_SPLITS.find(s => s.key === splitKey) || MS_SPLITS[3]
+  if (m.split) {
+    const cur = msStats(m, tf).cur
+    const rows = [
+      { label: sp.primary, val: cur, accent: true },
+      ...(m.split[splitKey]?.cohorts || []).map(ch => ({ label: ch.label, val: ch.win?.[tf] ?? null })),
+    ]
+    const max = Math.max(...rows.map(r => Math.abs(r.val ?? 0)), 1e-9)
+    return rows.map(r => ({
+      label: r.label,
+      val: r.val == null ? '—' : msFmt(r.val, m.fmt),
+      pct: r.val == null ? 0 : Math.round((Math.abs(r.val) / max) * 100),
+      accent: !!r.accent,
+    }))
+  }
+  const { cur } = msStats(m, tf)
   const rows = [
     { label: sp.primary === 'This filter' ? 'This filter set' : sp.primary, mult: 1.0, accent: true },
     { label: sp.comp, mult: sp.factor },
   ]
-  if (['county', 'submarket', 'era'].includes(splitKey)) {
-    rows.push({ label: 'Metro · all 2–4u', mult: 0.92 })
-    rows.push({ label: 'Inner east · pre-40', mult: 1.03 })
-  }
   const max = Math.max(...rows.map(r => Math.abs(cur * r.mult)))
   return rows.map(r => {
     const val = cur * r.mult
@@ -240,10 +262,12 @@ const _MVAL = {
   dom:       totalDOM,
   escrow:    escrowLength,
 }
-// asking-price comparison series (for the asksold split) on ppu/psf
+// asking-price analogues (for the Asking-vs-Sold split) — same display scaling
 const _AVAL = {
   ppu: scaled(askPriceUnit, 1 / 1000),
   psf: askPriceSF,
+  cap: scaled(askCap, 100),
+  grm: askGRM,
 }
 
 export async function fetchSnapshotData(filters = {}) {
@@ -269,71 +293,105 @@ export async function fetchSnapshotData(filters = {}) {
   const f = filters || {}
   const scoped = all.filter(c => inScope(c, f))
 
-  // bucket comps by quarter (sold by sale_date, listings by listing_date)
-  const soldByQ   = MS_QUARTERS.map(() => [])
-  const listedByQ = MS_QUARTERS.map(() => [])
-  for (const c of scoped) {
-    if (c.status === 'Sold') { const q = _quarterIdx(c.sale_date); if (q >= 0) soldByQ[q].push(c) }
-    const lq = _quarterIdx(c.listing_date); if (lq >= 0) listedByQ[lq].push(c)
-  }
-
-  // median series with the <3-comps-per-quarter → null rule
-  const medSeries = key => soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_MVAL[key]))))
-  const seriesFor = key => {
-    switch (key) {
-      case 'nsold':     return soldByQ.map(b => b.length)                                   // count of closed sales
-      case 'nlisted':   return listedByQ.map(b => b.length)                                 // count of new listings
-      case 'volume':    return soldByQ.map(b => b.reduce((s, c) => s + (Number(c.sale_price) || 0), 0) / 1e6) // sum $M
-      case 'cashshare': return soldByQ.map(b => b.length < 3 ? null : (b.filter(c => !Number(c.loan_amount)).length / b.length) * 100)
-      default:          return _MVAL[key] ? medSeries(key) : (MS_METRICS.find(m => m.key === key)?.series || [])
-    }
-  }
-
-  /* ---- True day-window stats for the metric tiles (validation spec §7) ----
-     For each timeframe: current window = sale_date in [today−W, today];
-     prior = [today−2W, today−W) and YOY = [today−365−W, today−365), both
-     HALF-OPEN so edge dates are never double-counted. n = sold count in the
-     current window (replaces the old MS_TF_N placeholder labels). */
+  /* ---- Metric engine — quarterly series + true day-window stats for ONE pool.
+     Used for the primary filtered pool AND for every split-comparison cohort,
+     so all cohorts get identical, fixture-validated math (spec §7 windows:
+     current = [today−W, today]; prior/YOY half-open so edges never double-count). */
   const TF_DAYS = { '30d': 30, '90d': 90, '180d': 180, '365d': 365 }
-  const _today = new Date()
-  const _ago = days => new Date(_today.getFullYear(), _today.getMonth(), _today.getDate() - days)
-  const soldDated   = scoped.filter(c => c.status === 'Sold').map(c => ({ c, d: parseDate(c.sale_date) })).filter(x => x.d)
-  const listedDated = scoped.map(c => ({ c, d: parseDate(c.listing_date) })).filter(x => x.d)
-
-  function metricWindowValue(key, soldSet, listedSet) {
-    switch (key) {
-      case 'nsold':     return soldSet.length
-      case 'nlisted':   return listedSet.length
-      case 'volume':    return soldSet.reduce((s, c) => s + (Number(c.sale_price) || 0), 0) / 1e6
-      case 'cashshare': return soldSet.length ? (soldSet.filter(c => !Number(c.loan_amount)).length / soldSet.length) * 100 : null
-      default:          return _MVAL[key] ? _median(soldSet.map(_MVAL[key])) : null
+  function makeEngine(pool) {
+    const soldByQ   = MS_QUARTERS.map(() => [])
+    const listedByQ = MS_QUARTERS.map(() => [])
+    for (const c of pool) {
+      if (c.status === 'Sold') { const q = _quarterIdx(c.sale_date); if (q >= 0) soldByQ[q].push(c) }
+      const lq = _quarterIdx(c.listing_date); if (lq >= 0) listedByQ[lq].push(c)
     }
+    // median series with the <3-comps-per-quarter → null rule
+    const medSeries = key => soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_MVAL[key]))))
+    const seriesFor = key => {
+      switch (key) {
+        case 'nsold':     return soldByQ.map(b => b.length)                                   // count of closed sales
+        case 'nlisted':   return listedByQ.map(b => b.length)                                 // count of new listings
+        case 'volume':    return soldByQ.map(b => b.reduce((s, c) => s + (Number(c.sale_price) || 0), 0) / 1e6) // sum $M
+        case 'cashshare': return soldByQ.map(b => b.length < 3 ? null : (b.filter(c => !Number(c.loan_amount)).length / b.length) * 100)
+        default:          return _MVAL[key] ? medSeries(key) : (MS_METRICS.find(m => m.key === key)?.series || [])
+      }
+    }
+    const today = new Date()
+    const ago = days => new Date(today.getFullYear(), today.getMonth(), today.getDate() - days)
+    const soldDated   = pool.filter(c => c.status === 'Sold').map(c => ({ c, d: parseDate(c.sale_date) })).filter(x => x.d)
+    const listedDated = pool.map(c => ({ c, d: parseDate(c.listing_date) })).filter(x => x.d)
+    const winSets = {}
+    for (const [tf, W] of Object.entries(TF_DAYS)) {
+      const t0 = ago(W), p0 = ago(2 * W), y1 = ago(365), y0 = ago(365 + W)
+      winSets[tf] = {
+        curS: soldDated.filter(x => x.d >= t0 && x.d <= today).map(x => x.c),
+        priS: soldDated.filter(x => x.d >= p0 && x.d < t0).map(x => x.c),    // half-open
+        yoyS: soldDated.filter(x => x.d >= y0 && x.d < y1).map(x => x.c),    // half-open
+        curL: listedDated.filter(x => x.d >= t0 && x.d <= today).map(x => x.c),
+        priL: listedDated.filter(x => x.d >= p0 && x.d < t0).map(x => x.c),
+        yoyL: listedDated.filter(x => x.d >= y0 && x.d < y1).map(x => x.c),
+      }
+    }
+    function val(key, soldSet, listedSet) {
+      switch (key) {
+        case 'nsold':     return soldSet.length
+        case 'nlisted':   return listedSet.length
+        case 'volume':    return soldSet.reduce((s, c) => s + (Number(c.sale_price) || 0), 0) / 1e6
+        case 'cashshare': return soldSet.length ? (soldSet.filter(c => !Number(c.loan_amount)).length / soldSet.length) * 100 : null
+        default:          return _MVAL[key] ? _median(soldSet.map(_MVAL[key])) : null
+      }
+    }
+    const winFor = (key, tf) => {
+      const s = winSets[tf]
+      return { cur: val(key, s.curS, s.curL), prior: val(key, s.priS, s.priL), yoy: val(key, s.yoyS, s.yoyL), n: s.curS.length }
+    }
+    // ask-side analogues (listing-price formulas over the same sold pool)
+    const askSeriesFor = key => _AVAL[key] ? soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_AVAL[key])))) : null
+    const askWinCur = (key, tf) => _AVAL[key] ? _median(winSets[tf].curS.map(_AVAL[key])) : null
+    return { seriesFor, winFor, askSeriesFor, askWinCur }
   }
 
-  const winSets = {}
-  for (const [tf, W] of Object.entries(TF_DAYS)) {
-    const t0 = _ago(W), p0 = _ago(2 * W), y1 = _ago(365), y0 = _ago(365 + W)
-    winSets[tf] = {
-      curS: soldDated.filter(x => x.d >= t0 && x.d <= _today).map(x => x.c),
-      priS: soldDated.filter(x => x.d >= p0 && x.d < t0).map(x => x.c),    // half-open
-      yoyS: soldDated.filter(x => x.d >= y0 && x.d < y1).map(x => x.c),    // half-open
-      curL: listedDated.filter(x => x.d >= t0 && x.d <= _today).map(x => x.c),
-      priL: listedDated.filter(x => x.d >= p0 && x.d < t0).map(x => x.c),
-      yoyL: listedDated.filter(x => x.d >= y0 && x.d < y1).map(x => x.c),
-    }
+  const eng = makeEngine(scoped)
+
+  /* ---- Split-comparison cohorts — REAL pools, not factor multipliers ----
+     cash/buyer partition the filtered pool; the geo/era splits re-run the
+     filter set with exactly that one dimension widened, so the comparison is
+     always "this filter vs the broader slice it sits inside". */
+  const SPLIT_COHORTS = {
+    cash: [
+      { label: 'All cash', eng: makeEngine(scoped.filter(c => !Number(c.loan_amount))) },
+      { label: 'Financed', eng: makeEngine(scoped.filter(c => Number(c.loan_amount) > 0)) },
+    ],
+    buyer: [
+      { label: 'Owner-occ', eng: makeEngine(scoped.filter(c => !!c.owner_occ_purchase)) },
+      { label: 'Investor',  eng: makeEngine(scoped.filter(c => !c.owner_occ_purchase)) },
+    ],
+    county:    [{ label: 'County avg',     eng: makeEngine(all.filter(c => inScope(c, { ...f, subMarket: 'All', zip: 'All' }))) }],
+    submarket: [{ label: 'Sub-market avg', eng: makeEngine(all.filter(c => inScope(c, { ...f, zip: 'All' }))) }],
+    era:       [{ label: 'All eras',       eng: makeEngine(all.filter(c => inScope(c, { ...f, era: 'All' }))) }],
   }
+  const TFS = Object.keys(TF_DAYS)
+  const winCurMap = (e, key) => Object.fromEntries(TFS.map(tf => [tf, e.winFor(key, tf).cur]))
 
   const metrics = MS_METRICS.map(m => {
-    const out = { ...m, series: seriesFor(m.key) }
-    if (m.ask && _AVAL[m.key]) out.ask = soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_AVAL[m.key]))))
+    const out = { ...m, series: eng.seriesFor(m.key) }
     out.win = {}
-    for (const tf of Object.keys(TF_DAYS)) {
-      const s = winSets[tf]
-      out.win[tf] = {
-        cur:   metricWindowValue(m.key, s.curS, s.curL),
-        prior: metricWindowValue(m.key, s.priS, s.priL),
-        yoy:   metricWindowValue(m.key, s.yoyS, s.yoyL),
-        n:     s.curS.length,
+    for (const tf of TFS) out.win[tf] = eng.winFor(m.key, tf)
+    // real comparison data per split; presence of out.split (even empty) tells
+    // msCompSeries/msCompBars that real data is loaded — no factor fallbacks
+    out.split = {}
+    const askSeries = eng.askSeriesFor(m.key)
+    if (askSeries) {
+      out.ask = askSeries
+      out.split.asksold = {
+        series: askSeries,
+        cohorts: [{ label: 'Asking', win: Object.fromEntries(TFS.map(tf => [tf, eng.askWinCur(m.key, tf)])) }],
+      }
+    }
+    for (const [sk, cohorts] of Object.entries(SPLIT_COHORTS)) {
+      out.split[sk] = {
+        series:  cohorts[0].eng.seriesFor(m.key),   // chart overlay = first cohort
+        cohorts: cohorts.map(ch => ({ label: ch.label, win: winCurMap(ch.eng, m.key) })),
       }
     }
     return out

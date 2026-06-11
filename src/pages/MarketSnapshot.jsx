@@ -355,7 +355,7 @@ function MSBoard({ metrics, metricKey, setMetricKey, tf, split, setSplit, onOpen
         <div className="bb-detail-section">
           <p className="bb-detail-sl">Trend · quarterly history</p>
           <div style={{ height: 132 }}>
-            <MSLine primary={m.series} comp={split === 'asksold' && comp ? comp.data : null} fmt={m.fmt} windowQs={MS_TF_WIN[tf]} yTicks={3} />
+            <MSLine primary={m.series} comp={comp ? comp.data : null} fmt={m.fmt} windowQs={MS_TF_WIN[tf]} yTicks={3} />
           </div>
         </div>
 
@@ -518,7 +518,7 @@ function MSPresent({ metrics, metricKey, setMetricKey, tf, onBack }) {
                 <h3 className="ed-chart-title">{m.focusName} · quarterly</h3>
                 <div className="ed-chart-legend">
                   <span className="fm-leg"><span className="fm-leg-key a"></span>This filter</span>
-                  <span className="fm-leg"><span className="fm-leg-key b"></span>Sub-market</span>
+                  {comp && <span className="fm-leg"><span className="fm-leg-key b"></span>{comp.label}</span>}
                 </div>
               </div>
               <div style={{ height: 220 }}>
