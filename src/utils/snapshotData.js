@@ -20,11 +20,17 @@ import {
    into components.
    ============================================================ */
 
-export const MS_QUARTERS = [
-  'Q1·21', 'Q2·21', 'Q3·21', 'Q4·21', 'Q1·22', 'Q2·22', 'Q3·22', 'Q4·22',
-  'Q1·23', 'Q2·23', 'Q3·23', 'Q4·23', 'Q1·24', 'Q2·24', 'Q3·24', 'Q4·24',
-  'Q1·25', 'Q2·25', 'Q3·25', 'Q4·25',
-]
+/* Rolling quarter grid — the last N quarters ENDING IN THE CURRENT QUARTER,
+   rebuilt at load so the chart calendar never goes stale. (It was previously
+   hardcoded Q1·21–Q4·25, which silently dropped every sale dated after 2025.) */
+const QUARTER_COUNT = 20
+const _qNow = new Date()
+const _qEndAbs = _qNow.getFullYear() * 4 + Math.floor(_qNow.getMonth() / 3)   // absolute quarter index of today
+const _qStartAbs = _qEndAbs - (QUARTER_COUNT - 1)
+export const MS_QUARTERS = Array.from({ length: QUARTER_COUNT }, (_, i) => {
+  const abs = _qStartAbs + i
+  return `Q${(abs % 4) + 1}·${String(Math.floor(abs / 4)).slice(-2)}`
+})
 
 /* timeframe → how many trailing quarters define the "current window" */
 export const MS_TF_WIN = { '30d': 1, '90d': 1, '180d': 2, '365d': 4 }
@@ -139,8 +145,14 @@ export function msFmt(v, t) {
 // mean that ignores null/non-finite quarters; returns null if the window is empty
 const msMean = a => { const f = a.filter(v => v != null && isFinite(v)); return f.length ? f.reduce((x, y) => x + y, 0) / f.length : null }
 
-/* current / prior / yoy window means for a timeframe */
+/* current / prior / yoy stats for a timeframe.
+   Real data (fetchSnapshotData) attaches m.win[tf] = { cur, prior, yoy, n }
+   computed over TRUE day windows per the validation spec — current window is
+   the last W days by sale date; prior and YOY windows are half-open. The
+   quarter-mean fallback below only serves the synchronous placeholder state
+   before the first fetch resolves. */
 export function msStats(m, tf) {
+  if (m.win && m.win[tf]) return m.win[tf]
   const s = m.series, n = s.length, w = MS_TF_WIN[tf] || 1
   const cur   = msMean(s.slice(n - w))
   const prior = msMean(s.slice(Math.max(0, n - 2 * w), n - w))
@@ -206,8 +218,8 @@ export function msCompBars(m, tf, splitKey) {
    ============================================================ */
 
 const _median = median
-// quarter index 0..19 (Q1·21 = 0) or -1 if outside the window
-function _quarterIdx(s) { const d = parseDate(s); if (!d) return -1; const i = (d.getFullYear() - 2021) * 4 + Math.floor(d.getMonth() / 3); return (i >= 0 && i < MS_QUARTERS.length) ? i : -1 }
+// index into the rolling grid (0..QUARTER_COUNT-1) or -1 if before the grid starts
+function _quarterIdx(s) { const d = parseDate(s); if (!d) return -1; const i = (d.getFullYear() * 4 + Math.floor(d.getMonth() / 3)) - _qStartAbs; return (i >= 0 && i < MS_QUARTERS.length) ? i : -1 }
 // active DOM: listing→pending if pending exists, else listing→today (Excel quirk —
 // the dashboard's "Active DOM" tile is sourced from SoldDaysToUC; spec §8.4)
 function _activeDom(c) { if (!c.listing_date) return null; return c.pending_date ? daysToUC(c) : actDOM(c) }
@@ -277,9 +289,53 @@ export async function fetchSnapshotData(filters = {}) {
     }
   }
 
+  /* ---- True day-window stats for the metric tiles (validation spec §7) ----
+     For each timeframe: current window = sale_date in [today−W, today];
+     prior = [today−2W, today−W) and YOY = [today−365−W, today−365), both
+     HALF-OPEN so edge dates are never double-counted. n = sold count in the
+     current window (replaces the old MS_TF_N placeholder labels). */
+  const TF_DAYS = { '30d': 30, '90d': 90, '180d': 180, '365d': 365 }
+  const _today = new Date()
+  const _ago = days => new Date(_today.getFullYear(), _today.getMonth(), _today.getDate() - days)
+  const soldDated   = scoped.filter(c => c.status === 'Sold').map(c => ({ c, d: parseDate(c.sale_date) })).filter(x => x.d)
+  const listedDated = scoped.map(c => ({ c, d: parseDate(c.listing_date) })).filter(x => x.d)
+
+  function metricWindowValue(key, soldSet, listedSet) {
+    switch (key) {
+      case 'nsold':     return soldSet.length
+      case 'nlisted':   return listedSet.length
+      case 'volume':    return soldSet.reduce((s, c) => s + (Number(c.sale_price) || 0), 0) / 1e6
+      case 'cashshare': return soldSet.length ? (soldSet.filter(c => !Number(c.loan_amount)).length / soldSet.length) * 100 : null
+      default:          return _MVAL[key] ? _median(soldSet.map(_MVAL[key])) : null
+    }
+  }
+
+  const winSets = {}
+  for (const [tf, W] of Object.entries(TF_DAYS)) {
+    const t0 = _ago(W), p0 = _ago(2 * W), y1 = _ago(365), y0 = _ago(365 + W)
+    winSets[tf] = {
+      curS: soldDated.filter(x => x.d >= t0 && x.d <= _today).map(x => x.c),
+      priS: soldDated.filter(x => x.d >= p0 && x.d < t0).map(x => x.c),    // half-open
+      yoyS: soldDated.filter(x => x.d >= y0 && x.d < y1).map(x => x.c),    // half-open
+      curL: listedDated.filter(x => x.d >= t0 && x.d <= _today).map(x => x.c),
+      priL: listedDated.filter(x => x.d >= p0 && x.d < t0).map(x => x.c),
+      yoyL: listedDated.filter(x => x.d >= y0 && x.d < y1).map(x => x.c),
+    }
+  }
+
   const metrics = MS_METRICS.map(m => {
     const out = { ...m, series: seriesFor(m.key) }
     if (m.ask && _AVAL[m.key]) out.ask = soldByQ.map(b => (b.length < 3 ? null : _median(b.map(_AVAL[m.key]))))
+    out.win = {}
+    for (const tf of Object.keys(TF_DAYS)) {
+      const s = winSets[tf]
+      out.win[tf] = {
+        cur:   metricWindowValue(m.key, s.curS, s.curL),
+        prior: metricWindowValue(m.key, s.priS, s.priL),
+        yoy:   metricWindowValue(m.key, s.yoyS, s.yoyL),
+        n:     s.curS.length,
+      }
+    }
     return out
   })
 

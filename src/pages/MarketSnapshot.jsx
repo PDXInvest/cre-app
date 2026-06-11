@@ -313,7 +313,7 @@ function MSBoard({ metrics, metricKey, setMetricKey, tf, split, setSplit, onOpen
     <div className="bb-body">
       <div className="bb-left">
         <div className="bb-left-head">
-          <h3 className="bb-left-title">Last {MS_TF_LABEL[tf]} · {MS_TF_N[tf]} sales matched</h3>
+          <h3 className="bb-left-title">Last {MS_TF_LABEL[tf]} · {st.n ?? MS_TF_N[tf]} sales matched</h3>
           <span className="bb-left-meta">Δ vs {MS_TF_PRIOR[tf]} · YoY · click a tile to drill in →</span>
         </div>
         <div className="bb-grid">
@@ -447,7 +447,7 @@ function MSFocus({ metrics, metricKey, setMetricKey, tf, split, setSplit, onBack
             <span className="fm-leg"><span className="fm-leg-key a"></span>{comp ? comp.primaryLabel : 'This filter'}</span>
             {comp && <span className="fm-leg"><span className="fm-leg-key b"></span>{comp.label}</span>}
             <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--mute)' }}>
-              Quarterly · 2021 – 2025 · shaded = current window
+              Quarterly · {MS_QUARTERS[0]} – {MS_QUARTERS[MS_QUARTERS.length - 1]} · shaded = current window
             </span>
           </div>
           <div style={{ flex: 1, minHeight: 240 }}>
@@ -456,7 +456,7 @@ function MSFocus({ metrics, metricKey, setMetricKey, tf, split, setSplit, onBack
         </div>
 
         <div className="fm-foot">
-          <FMFootCell l={`Median (${MS_TF_LABEL[tf]})`} v={msFmt(st.cur, m.fmt)} s={`${MS_TF_N[tf]} sales this window`} />
+          <FMFootCell l={`Median (${MS_TF_LABEL[tf]})`} v={msFmt(st.cur, m.fmt)} s={`${st.n ?? MS_TF_N[tf]} sales this window`} />
           <FMFootCell l={`vs ${MS_TF_PRIOR[tf]}`} v={dP.txt} s="period over period" />
           <FMFootCell l="Year over year" v={dY.txt} s="same window, −1yr" />
           <FMFootCell l={comp ? comp.label : 'Comparison'} v={comp ? msFmt(comp.data[comp.data.length - 1], m.fmt) : '—'} s="latest comparison" />
@@ -547,7 +547,7 @@ function MSPresent({ metrics, metricKey, setMetricKey, tf, onBack }) {
           <span className="brand-name">Method Multifamily</span>
           <span>Market Snapshot</span>
           <span className="ed-foot-spacer"></span>
-          <span>Source: RMLS + Method Multifamily underwriting · n = {MS_TF_N[tf]} sales · placeholder data</span>
+          <span>Source: RMLS + Method Multifamily underwriting · n = {st.n ?? MS_TF_N[tf]} sales</span>
         </div>
       </div>
     </>
