@@ -179,23 +179,49 @@ export default function Properties() {
     loadProperties()
   }
 
+  // Link existing UNLINKED comps to the properties just imported. The old version ran one
+  // UPDATE per imported property (a no-op for most) — thousands of sequential round-trips that
+  // hung on large imports. Now: fetch the unlinked comps once, keep only those matching an
+  // imported property, and update grouped by property with bounded concurrency.
   async function autoMatchCompsToProperties(importedRecords) {
-    const sfIds = [...new Set(importedRecords.map(r => r.sf_property_id).filter(Boolean))]
-    if (!sfIds.length) return 0
-    let allProps = []
-    const chunkSize = 200
-    for (let i = 0; i < sfIds.length; i += chunkSize) {
-      const batch = sfIds.slice(i, i + chunkSize)
-      const { data } = await supabase.from('properties').select('id, sf_property_id').in('sf_property_id', batch)
-      if (data) allProps = allProps.concat(data)
+    const importedSfIds = new Set(importedRecords.map(r => r.sf_property_id).filter(Boolean))
+    if (!importedSfIds.size) return 0
+    // 1) all currently-unlinked comps (paginated — ~8 requests, not one per property)
+    let unlinked = [], from = 0
+    const PAGE = 1000
+    while (true) {
+      const { data } = await supabase.from('comps').select('id, sf_property_id')
+        .is('property_id', null).order('id', { ascending: true }).range(from, from + PAGE - 1)
+      if (!data || !data.length) break
+      unlinked = unlinked.concat(data)
+      if (data.length < PAGE) break
+      from += PAGE
     }
-    if (!allProps.length) return 0
+    // 2) keep only comps whose sf_property_id is among the properties just imported
+    const candidates = unlinked.filter(c => c.sf_property_id && importedSfIds.has(c.sf_property_id))
+    if (!candidates.length) return 0
+    // 3) resolve those sf_property_ids → property ids (batched)
+    const candSfIds = [...new Set(candidates.map(c => c.sf_property_id))]
     const propMap = {}
-    allProps.forEach(p => { propMap[p.sf_property_id] = p.id })
-    let matched = 0
-    for (const [sfId, propId] of Object.entries(propMap)) {
-      const { data } = await supabase.from('comps').update({ property_id: propId }).eq('sf_property_id', sfId).is('property_id', null).select('id')
-      if (data?.length) matched += data.length
+    const CH = 200
+    for (let i = 0; i < candSfIds.length; i += CH) {
+      const { data } = await supabase.from('properties').select('id, sf_property_id').in('sf_property_id', candSfIds.slice(i, i + CH))
+      if (data) data.forEach(p => { propMap[p.sf_property_id] = p.id })
+    }
+    // 4) group comp ids by target property, update with bounded concurrency + progress
+    const byProp = new Map()
+    candidates.forEach(c => { const pid = propMap[c.sf_property_id]; if (!pid) return; if (!byProp.has(pid)) byProp.set(pid, []); byProp.get(pid).push(c.id) })
+    const entries = [...byProp.entries()]
+    let matched = 0, done = 0
+    const CONC = 25
+    for (let i = 0; i < entries.length; i += CONC) {
+      const batch = entries.slice(i, i + CONC)
+      await Promise.all(batch.map(async ([pid, ids]) => {
+        const { data } = await supabase.from('comps').update({ property_id: pid }).in('id', ids).select('id')
+        if (data) matched += data.length
+      }))
+      done += batch.length
+      setMsg(`Linking comps… ${Math.min(done, entries.length).toLocaleString()} / ${entries.length.toLocaleString()}`)
     }
     return matched
   }

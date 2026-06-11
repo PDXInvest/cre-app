@@ -145,18 +145,40 @@ export default function CompDatabase() {
     const { data: rows } = Papa.parse(clean, { header: true, skipEmptyLines: true, transformHeader: h => h.trim() })
     const parsed = rows || []
     if (!parsed.length) { setMsg('No rows found — check the file/paste'); setTimeout(() => setMsg(''), 4000); setImporting(false); return }
-    const records = parsed.map(calcFields).filter(r => r.sale_id)
-    const skipped = parsed.length - records.length
+    // Dedupe by sale_id (last wins) — a duplicate Sale ID within a chunk would otherwise trigger
+    // an "ON CONFLICT cannot affect row twice" error and abort the import.
+    const bySaleId = new Map()
+    let skipped = 0
+    for (const r of parsed) {
+      const rec = calcFields(r)
+      if (!rec.sale_id) { skipped++; continue }
+      bySaleId.set(rec.sale_id, rec)
+    }
+    const records = Array.from(bySaleId.values())
+    const dupes = (parsed.length - skipped) - records.length
     // NOTE (deferred · remodel §5): re-import upserts by sale_id and will overwrite any
     // manual inline edits. The CSV-vs-manual merge/conflict rule is intentionally deferred
     // until the move off Salesforce — revisit then.
-    const chunkSize = 50
+
+    // Resolve sf_property_id → property id ONCE (batched), then link inline by stamping
+    // property_id on each record so the upsert does the linking. The old approach ran one
+    // UPDATE per matched property (thousands of sequential round-trips) and hung on full imports.
+    setMsg('Matching properties…')
+    const propMap = await buildPropertyMap(records.map(r => r.sf_property_id))
+    let matched = 0
+    for (const r of records) {
+      const pid = r.sf_property_id ? (propMap[r.sf_property_id] || null) : null
+      r.property_id = pid
+      if (pid) matched++
+    }
+
+    const chunkSize = 500
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize)
+      setMsg(`Importing… ${Math.min(i + chunkSize, records.length).toLocaleString()} / ${records.length.toLocaleString()}`)
       const { error } = await supabase.from('comps').upsert(chunk, { onConflict: 'sale_id' })
       if (error) { console.error(error); setMsg('Import error — check console'); setImporting(false); return }
     }
-    const matched = await autoMatchCompsToProperties(records)
     // Stamp the import time (select-then-write, mirrors upsertDash — no reliance on a unique constraint).
     try {
       const importedAt = new Date().toISOString()
@@ -165,33 +187,29 @@ export default function CompDatabase() {
       if (ex) await supabase.from('app_settings').update({ value: stamp, updated_at: importedAt }).eq('key', 'comps_last_import')
       else    await supabase.from('app_settings').insert({ key: 'comps_last_import', value: stamp, updated_at: importedAt })
     } catch (e) { console.warn('last-import stamp:', e) }
-    setMsg(`${records.length} comps imported` + (matched ? ` · ${matched} linked to properties` : '') + (skipped ? ` · ${skipped} row${skipped > 1 ? 's' : ''} skipped (missing Sale ID)` : ''))
-    setTimeout(() => setMsg(''), 5000)
+    setMsg(`${records.length.toLocaleString()} comps imported`
+      + (matched ? ` · ${matched.toLocaleString()} linked to properties` : '')
+      + (dupes ? ` · ${dupes} duplicate Sale ID${dupes > 1 ? 's' : ''} merged` : '')
+      + (skipped ? ` · ${skipped} skipped (missing Sale ID)` : ''))
+    setTimeout(() => setMsg(''), 6000)
     setShowPaste(false)
     setPasteText('')
     setImporting(false)
     loadComps()
   }
 
-  async function autoMatchCompsToProperties(comps) {
-    const sfIds = [...new Set(comps.map(c => c.sf_property_id).filter(Boolean))]
-    if (!sfIds.length) return 0
-    let allProps = []
+  // Resolve a set of sf_property_ids to property ids via batched .in() queries (fast: a few
+  // dozen requests for thousands of ids — no per-id round-trips).
+  async function buildPropertyMap(sfIdsRaw) {
+    const sfIds = [...new Set(sfIdsRaw.filter(Boolean))]
+    const map = {}
     const chunkSize = 200
     for (let i = 0; i < sfIds.length; i += chunkSize) {
       const batch = sfIds.slice(i, i + chunkSize)
       const { data } = await supabase.from('properties').select('id, sf_property_id').in('sf_property_id', batch)
-      if (data) allProps = allProps.concat(data)
+      if (data) data.forEach(p => { map[p.sf_property_id] = p.id })
     }
-    if (!allProps.length) return 0
-    const propMap = {}
-    allProps.forEach(p => { propMap[p.sf_property_id] = p.id })
-    let matched = 0
-    for (const [sfId, propId] of Object.entries(propMap)) {
-      const { data } = await supabase.from('comps').update({ property_id: propId }).eq('sf_property_id', sfId).is('property_id', null).select('id')
-      if (data?.length) matched += data.length
-    }
-    return matched
+    return map
   }
 
   // Inline edit → write to the SHARED comps table (affects every proposal's comp pool).
