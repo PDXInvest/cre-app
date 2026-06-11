@@ -1,0 +1,451 @@
+{
+  "description": "Golden validation fixtures for sales-comp calculations, extracted from Web App Validation.xlsx",
+  "generated": "2026-06-11",
+  "ground_truth": "per_row expected values are Excel computed outputs; aggregate expected values are documented formulas applied to the dataset at the given as_of date",
+  "notes": [
+    "Null/blank means missing required input -> exclude from aggregation, never treat as 0",
+    "cap/grm/ratios are decimals (0.0574 = 5.74%)",
+    "day metrics are integer date differences",
+    "SoldDaysToUC formula == PENDaysToUC (pending-listing); does not use sale_date",
+    "AskToSold uses original_listing_price (col S), not current listing_price (col T)",
+    "ActDOM excluded from fixtures: depends on TODAY(); pass explicit as_of in tests"
+  ],
+  "per_row_cases": [
+    {
+      "metric": "AskPriceUnit",
+      "formula": "listing_price/units",
+      "source_row": 2,
+      "inputs": {
+        "listing_price": 199900,
+        "units": 2
+      },
+      "expected": 99950,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskPriceUnit",
+      "formula": "listing_price/units",
+      "source_row": 3,
+      "inputs": {
+        "listing_price": 200000,
+        "units": 2
+      },
+      "expected": 100000,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskPriceUnit",
+      "formula": "listing_price/units",
+      "source_row": 386,
+      "inputs": {
+        "listing_price": null,
+        "units": 6
+      },
+      "expected": null,
+      "expected_is_null": true
+    },
+    {
+      "metric": "AskPriceSF",
+      "formula": "listing_price/building_sf",
+      "source_row": 2,
+      "inputs": {
+        "listing_price": 199900,
+        "building_sf": 1736
+      },
+      "expected": 115.14976958525345,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskPriceSF",
+      "formula": "listing_price/building_sf",
+      "source_row": 3,
+      "inputs": {
+        "listing_price": 200000,
+        "building_sf": 2624
+      },
+      "expected": 76.21951219512195,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskCap",
+      "formula": "noi/listing_price; null if x_noi",
+      "source_row": 5,
+      "inputs": {
+        "noi": 15390,
+        "listing_price": 250000,
+        "x_noi": false
+      },
+      "expected": 0.06156,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskCap",
+      "formula": "noi/listing_price; null if x_noi",
+      "source_row": 6,
+      "inputs": {
+        "noi": 24280,
+        "listing_price": 239500,
+        "x_noi": false
+      },
+      "expected": 0.10137787056367432,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskCap",
+      "formula": "noi/listing_price; null if x_noi",
+      "source_row": 391,
+      "inputs": {
+        "noi": 18216,
+        "listing_price": 635000,
+        "x_noi": true
+      },
+      "expected": null,
+      "expected_is_null": true
+    },
+    {
+      "metric": "AskGRM",
+      "formula": "listing_price/agi; null if x_agi",
+      "source_row": 3,
+      "inputs": {
+        "listing_price": 200000,
+        "agi": 25200,
+        "x_agi": false
+      },
+      "expected": 7.936507936507937,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskGRM",
+      "formula": "listing_price/agi; null if x_agi",
+      "source_row": 5,
+      "inputs": {
+        "listing_price": 250000,
+        "agi": 18780,
+        "x_agi": false
+      },
+      "expected": 13.312034078807242,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskGRM",
+      "formula": "listing_price/agi; null if x_agi",
+      "source_row": 65,
+      "inputs": {
+        "listing_price": 339900,
+        "agi": 10236,
+        "x_agi": true
+      },
+      "expected": null,
+      "expected_is_null": true
+    },
+    {
+      "metric": "SoldPriceUnit",
+      "formula": "sale_price/units",
+      "source_row": 2,
+      "inputs": {
+        "sale_price": 198400,
+        "units": 2
+      },
+      "expected": 99200,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldPriceUnit",
+      "formula": "sale_price/units",
+      "source_row": 3,
+      "inputs": {
+        "sale_price": 200000,
+        "units": 2
+      },
+      "expected": 100000,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldPriceSF",
+      "formula": "sale_price/building_sf",
+      "source_row": 2,
+      "inputs": {
+        "sale_price": 198400,
+        "building_sf": 1736
+      },
+      "expected": 114.28571428571429,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldPriceSF",
+      "formula": "sale_price/building_sf",
+      "source_row": 3,
+      "inputs": {
+        "sale_price": 200000,
+        "building_sf": 2624
+      },
+      "expected": 76.21951219512195,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldCap",
+      "formula": "noi/sale_price; null if x_noi",
+      "source_row": 5,
+      "inputs": {
+        "noi": 15390,
+        "sale_price": 225000,
+        "x_noi": false
+      },
+      "expected": 0.0684,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldCap",
+      "formula": "noi/sale_price; null if x_noi",
+      "source_row": 6,
+      "inputs": {
+        "noi": 24280,
+        "sale_price": 232000,
+        "x_noi": false
+      },
+      "expected": 0.1046551724137931,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldCap",
+      "formula": "noi/sale_price; null if x_noi",
+      "source_row": 391,
+      "inputs": {
+        "noi": 18216,
+        "sale_price": 610000,
+        "x_noi": true
+      },
+      "expected": null,
+      "expected_is_null": true
+    },
+    {
+      "metric": "SoldGRM",
+      "formula": "sale_price/agi; null if x_agi",
+      "source_row": 3,
+      "inputs": {
+        "sale_price": 200000,
+        "agi": 25200,
+        "x_agi": false
+      },
+      "expected": 7.936507936507937,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldGRM",
+      "formula": "sale_price/agi; null if x_agi",
+      "source_row": 5,
+      "inputs": {
+        "sale_price": 225000,
+        "agi": 18780,
+        "x_agi": false
+      },
+      "expected": 11.980830670926517,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldGRM",
+      "formula": "sale_price/agi; null if x_agi",
+      "source_row": 65,
+      "inputs": {
+        "sale_price": 330000,
+        "agi": 10236,
+        "x_agi": true
+      },
+      "expected": null,
+      "expected_is_null": true
+    },
+    {
+      "metric": "PENDaysToUC",
+      "formula": "pending_date-listing_date (days)",
+      "source_row": 2,
+      "inputs": {
+        "listing_date": "2017-02-15",
+        "pending_date": "2017-03-13"
+      },
+      "expected": 26,
+      "expected_is_null": false
+    },
+    {
+      "metric": "PENDaysToUC",
+      "formula": "pending_date-listing_date (days)",
+      "source_row": 3,
+      "inputs": {
+        "listing_date": "2018-07-02",
+        "pending_date": "2018-07-12"
+      },
+      "expected": 10,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldDaysToUC",
+      "formula": "pending_date-listing_date (days)",
+      "source_row": 2,
+      "inputs": {
+        "listing_date": "2017-02-15",
+        "pending_date": "2017-03-13"
+      },
+      "expected": 26,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldDaysToUC",
+      "formula": "pending_date-listing_date (days)",
+      "source_row": 3,
+      "inputs": {
+        "listing_date": "2018-07-02",
+        "pending_date": "2018-07-12"
+      },
+      "expected": 10,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldEscrowLength",
+      "formula": "sale_date-pending_date (days)",
+      "source_row": 2,
+      "inputs": {
+        "pending_date": "2017-03-13",
+        "sale_date": "2017-04-04"
+      },
+      "expected": 22,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldEscrowLength",
+      "formula": "sale_date-pending_date (days)",
+      "source_row": 3,
+      "inputs": {
+        "pending_date": "2018-07-12",
+        "sale_date": "2018-07-23"
+      },
+      "expected": 11,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldTotalDOM",
+      "formula": "sale_date-listing_date (days)",
+      "source_row": 2,
+      "inputs": {
+        "listing_date": "2017-02-15",
+        "sale_date": "2017-04-04"
+      },
+      "expected": 48,
+      "expected_is_null": false
+    },
+    {
+      "metric": "SoldTotalDOM",
+      "formula": "sale_date-listing_date (days)",
+      "source_row": 3,
+      "inputs": {
+        "listing_date": "2018-07-02",
+        "sale_date": "2018-07-23"
+      },
+      "expected": 21,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskToSold",
+      "formula": "sale_price/original_listing_price",
+      "source_row": 2,
+      "inputs": {
+        "sale_price": 198400,
+        "original_listing_price": 199900
+      },
+      "expected": 0.992496248124062,
+      "expected_is_null": false
+    },
+    {
+      "metric": "AskToSold",
+      "formula": "sale_price/original_listing_price",
+      "source_row": 3,
+      "inputs": {
+        "sale_price": 200000,
+        "original_listing_price": 200000
+      },
+      "expected": 1,
+      "expected_is_null": false
+    }
+  ],
+  "aggregate_scenarios": [
+    {
+      "name": "Multnomah_365d",
+      "as_of": "2026-06-10",
+      "window_days": 365,
+      "window_start": "2025-06-10",
+      "filters": {
+        "status": "Sold",
+        "county": "Multnomah",
+        "sub_market": "All",
+        "zip": null,
+        "unit_min": 2,
+        "unit_max": 1000,
+        "ybe": "All"
+      },
+      "expected": {
+        "sold_count": 311,
+        "median_price_per_unit": 235000,
+        "median_price_per_sf": 236.0181051974403,
+        "median_cap": 0.05739157894736842,
+        "median_grm": 12.048922047724655,
+        "median_sold_days_to_uc": 57.0,
+        "median_escrow": 39,
+        "median_total_dom": 106,
+        "sale_volume_sum": 706783666,
+        "median_ask_to_sold": 0.9401880376075215
+      }
+    },
+    {
+      "name": "Multnomah_730d",
+      "as_of": "2026-06-10",
+      "window_days": 730,
+      "window_start": "2024-06-10",
+      "filters": {
+        "status": "Sold",
+        "county": "Multnomah",
+        "sub_market": "All",
+        "zip": null,
+        "unit_min": 2,
+        "unit_max": 1000,
+        "ybe": "All"
+      },
+      "expected": {
+        "sold_count": 641,
+        "median_price_per_unit": 237500,
+        "median_price_per_sf": 239.0499691548427,
+        "median_cap": 0.0572536855036855,
+        "median_grm": 12.678437265214125,
+        "median_sold_days_to_uc": 54.0,
+        "median_escrow": 37,
+        "median_total_dom": 101,
+        "sale_volume_sum": 1496713421,
+        "median_ask_to_sold": 0.9511111111111111
+      }
+    },
+    {
+      "name": "Washington_730d",
+      "as_of": "2026-06-10",
+      "window_days": 730,
+      "window_start": "2024-06-10",
+      "filters": {
+        "status": "Sold",
+        "county": "Washington",
+        "sub_market": "All",
+        "zip": null,
+        "unit_min": 2,
+        "unit_max": 1000,
+        "ybe": "All"
+      },
+      "expected": {
+        "sold_count": 162,
+        "median_price_per_unit": 257500,
+        "median_price_per_sf": 251.09064469219584,
+        "median_cap": 0.05623274478330658,
+        "median_grm": 13.727948827090428,
+        "median_sold_days_to_uc": 31.5,
+        "median_escrow": 40.0,
+        "median_total_dom": 82.5,
+        "sale_volume_sum": 909458249,
+        "median_ask_to_sold": 0.9642134933624296
+      }
+    }
+  ]
+}

@@ -8,9 +8,12 @@ const fX = v => v != null ? v.toFixed(2) + 'x' : '—'
 const fD = v => v ? new Date(v).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'
 const fDom = v => v != null ? v + 'd' : '—'
 
-function parseDate(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d }
-function daysBetween(a, b) { const da = parseDate(a), db = parseDate(b); if (!da || !db) return null; return Math.round(Math.abs((db - da) / 86400000)) }
-function median(arr) { const c = arr.filter(v => v != null && isFinite(v)); if (!c.length) return null; const s = [...c].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+// canonical metric formulas — validated against the golden fixtures (tests/comp-validation.test.js)
+import {
+  median, daysToUC, escrowLength, totalDOM, actDOM,
+  soldPriceUnit, soldPriceSF, soldCap, soldGRM, askToSold,
+  askPriceUnit, askCap, askGRM,
+} from '../utils/compMetrics'
 
 function calcFields(row) {
   const n = k => { const v = parseFloat(row[k]); return isNaN(v) ? null : v }
@@ -35,30 +38,26 @@ function calcFields(row) {
 }
 
 const compBadgeClass = s => s === 'Sold' ? 'active' : (s === 'Pending' || s === 'Under Contract') ? 'uc' : s === 'Active' ? 'prospect' : 'neutral'
+// Display label only — stored status stays "Under Contract" (matches Salesforce); we just show "Pending"
+const statusLabel = s => s === 'Under Contract' ? 'Pending' : s
 
-const STATUS_OPTIONS = ['Active', 'Pending', 'Under Contract', 'Sold', 'CAN/EXP/WTH']
+const STATUS_OPTIONS = ['Active', 'Under Contract', 'Sold', 'CAN/EXP/WTH']
 
 function addCalcFields(c) {
-  const xAgi = c.x_agi, xNoi = c.x_noi
-  const saleP = c.sale_price, listP = c.listing_price, origP = c.original_listing_price
-  const units = c.num_units, sf = c.building_sf
-  const agi = c.adv_agi, noi = c.adv_noi
-  const domTotal = daysBetween(c.listing_date, c.sale_date)
-  const domPending = daysBetween(c.listing_date, c.pending_date)
-  const domToday = c.listing_date ? daysBetween(c.listing_date, new Date().toISOString()) : null
   return {
     ...c,
-    _activeDom: c.listing_date ? (c.pending_date ? domPending : domToday) : null,
-    _totalDom: domTotal,
-    _escrow: daysBetween(c.pending_date, c.sale_date),
-    _soldPPU: (saleP && units) ? saleP / units : null,
-    _soldPSF: (saleP && sf) ? saleP / sf : null,
-    _soldGRM: (!xAgi && agi && saleP) ? saleP / agi : null,
-    _soldCap: (!xNoi && noi && saleP) ? noi / saleP : null,
-    _delivered: (saleP && origP) ? saleP / origP : null,
-    _aPPU: (listP && units) ? listP / units : null,
-    _aGRM: (!xAgi && agi && listP) ? listP / agi : null,
-    _aCap: (!xNoi && noi && listP) ? noi / listP : null,
+    // listing→pending when pending exists, else listing→today (Active rows)
+    _activeDom: c.listing_date ? (c.pending_date ? daysToUC(c) : actDOM(c)) : null,
+    _totalDom: totalDOM(c),
+    _escrow: escrowLength(c),
+    _soldPPU: soldPriceUnit(c),
+    _soldPSF: soldPriceSF(c),
+    _soldGRM: soldGRM(c),
+    _soldCap: soldCap(c),
+    _delivered: askToSold(c),   // sale ÷ ORIGINAL listing price (spec §6)
+    _aPPU: askPriceUnit(c),
+    _aGRM: askGRM(c),
+    _aCap: askCap(c),
   }
 }
 
@@ -354,7 +353,8 @@ export default function CompDatabase() {
             </div>
             <div className="cdb-selects">
               <select className="cdb-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                {['All', 'Sold', 'Active', 'Pending'].map(s => <option key={s} value={s}>{s === 'All' ? 'All statuses' : s}</option>)}
+                {/* data has no literal "Pending" status — under-contract rows are "Under Contract" */}
+                {['All', 'Sold', 'Active', 'Under Contract'].map(s => <option key={s} value={s}>{s === 'All' ? 'All statuses' : statusLabel(s)}</option>)}
               </select>
               <select className="cdb-select" value={subFilter} onChange={e => setSubFilter(e.target.value)}>
                 {submarkets.map(s => <option key={s} value={s}>{s === 'All' ? 'All sub-markets' : s}</option>)}
@@ -383,7 +383,7 @@ export default function CompDatabase() {
                     </div>
                     <div>
                       <div className="pl-row-fig">{fC(c.sale_price || c.listing_price)}</div>
-                      <div className="pl-row-figsub">{c._soldPPU ? `${fC(c._soldPPU)}/unit · ` : ''}{c.status || '—'}</div>
+                      <div className="pl-row-figsub">{c._soldPPU ? `${fC(c._soldPPU)}/unit · ` : ''}{statusLabel(c.status) || '—'}</div>
                     </div>
                   </div>
                 ))}
@@ -413,7 +413,7 @@ function CompPreview({ c, onEdit, onDelete }) {
     <aside className="pl-preview">
       <div className="pl-preview-bar">
         <span className="pl-preview-crumb">Comp preview · click a value to edit</span>
-        <span className={`ap-badge ${compBadgeClass(c.status)}`}>{c.status || '—'}</span>
+        <span className={`ap-badge ${compBadgeClass(c.status)}`}>{statusLabel(c.status) || '—'}</span>
       </div>
 
       <CompPhoto comp={c} onSave={onEdit} />

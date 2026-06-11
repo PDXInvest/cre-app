@@ -270,7 +270,7 @@ function MSNowStrip({ now }) {
       <div className="snap-now-group">
         <div className="snap-now-head">
           <span className="snap-now-n">{u ? u.count : '—'}</span>
-          <span className="snap-now-status">Under contract</span>
+          <span className="snap-now-status">Pending</span>
         </div>
         <div className="snap-now-metrics">
           <MSSNCell l="$/Unit" v={nfK(u?.ppu)} /><MSSNCell l="Cap" v={nfPct(u?.cap)} />

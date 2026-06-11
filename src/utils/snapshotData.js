@@ -1,4 +1,10 @@
 import { supabase } from '../supabase'
+import {
+  parseDate, median, inScope,
+  askPriceUnit, askPriceSF, soldPriceUnit, soldPriceSF,
+  askCap, soldCap, askGRM, soldGRM,
+  daysToUC, escrowLength, totalDOM, actDOM, askToSold, isUnderContract,
+} from './compMetrics'
 
 /* ============================================================
    MARKET SNAPSHOT — data-binding seam (§7)
@@ -199,32 +205,33 @@ export function msCompBars(m, tf, splitKey) {
    Field names verified against CompDatabase.jsx calcFields.
    ============================================================ */
 
-function _parseDt(s) { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d }
-function _daysBetween(a, b) { const da = _parseDt(a), db = _parseDt(b); if (!da || !db) return null; return Math.round(Math.abs((db - da) / 86400000)) }
-function _median(arr) { const c = arr.filter(v => v != null && isFinite(v)); if (!c.length) return null; const s = [...c].sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+const _median = median
 // quarter index 0..19 (Q1·21 = 0) or -1 if outside the window
-function _quarterIdx(s) { const d = _parseDt(s); if (!d) return -1; const i = (d.getFullYear() - 2021) * 4 + Math.floor(d.getMonth() / 3); return (i >= 0 && i < MS_QUARTERS.length) ? i : -1 }
-// active DOM: listing→pending if pending exists, else listing→today (mirrors CompDatabase)
-function _activeDom(c) { if (!c.listing_date) return null; return c.pending_date ? _daysBetween(c.listing_date, c.pending_date) : _daysBetween(c.listing_date, new Date().toISOString()) }
-// era strings differ between filter (en-dash) and stored comps (hyphen) — normalize
-const _normEra = e => (e || '').replace(/[–—]/g, '-').trim().toLowerCase()
+function _quarterIdx(s) { const d = parseDate(s); if (!d) return -1; const i = (d.getFullYear() - 2021) * 4 + Math.floor(d.getMonth() / 3); return (i >= 0 && i < MS_QUARTERS.length) ? i : -1 }
+// active DOM: listing→pending if pending exists, else listing→today (Excel quirk —
+// the dashboard's "Active DOM" tile is sourced from SoldDaysToUC; spec §8.4)
+function _activeDom(c) { if (!c.listing_date) return null; return c.pending_date ? daysToUC(c) : actDOM(c) }
 
-// per-comp value for each median metric. cap/grm use the codebase-standard
-// comp formulas (adv_noi/sale_price, sale_price/adv_agi) guarded by exclusion flags.
+/* Per-comp value for each median metric — canonical formulas from compMetrics
+   (validated against the golden fixtures by tests/comp-validation.test.js).
+   Metrics are decimals/dollars at the calc layer; DISPLAY scaling for the
+   series shape happens here: ppu → $k, cap → %, asksold → spread %. */
+const scaled = (fn, mult) => c => { const v = fn(c); return v == null ? null : v * mult }
 const _MVAL = {
-  ppu:       c => (c.sale_price && c.num_units)   ? (c.sale_price / c.num_units) / 1000 : null,  // → $k/unit
-  psf:       c => (c.sale_price && c.building_sf) ? c.sale_price / c.building_sf : null,
-  cap:       c => (!c.x_noi && c.adv_noi > 0 && c.sale_price) ? (c.adv_noi / c.sale_price) * 100 : null, // → %
-  grm:       c => (!c.x_agi && c.adv_agi > 0 && c.sale_price) ? c.sale_price / c.adv_agi : null,
-  asksold:   c => (c.sale_price && c.listing_price) ? ((c.sale_price - c.listing_price) / c.listing_price) * 100 : null,
-  activedom: c => _activeDom(c),
-  dom:       c => _daysBetween(c.listing_date, c.sale_date),
-  escrow:    c => _daysBetween(c.pending_date, c.sale_date),
+  ppu:       scaled(soldPriceUnit, 1 / 1000),                       // dollars → $k/unit
+  psf:       soldPriceSF,
+  cap:       scaled(soldCap, 100),                                  // decimal → %
+  grm:       soldGRM,
+  // Ask→Sold spread % = (sale / ORIGINAL list − 1) × 100 (spec §6: original, not current)
+  asksold:   c => { const r = askToSold(c); return r == null ? null : (r - 1) * 100 },
+  activedom: _activeDom,
+  dom:       totalDOM,
+  escrow:    escrowLength,
 }
 // asking-price comparison series (for the asksold split) on ppu/psf
 const _AVAL = {
-  ppu: c => (c.listing_price && c.num_units)   ? (c.listing_price / c.num_units) / 1000 : null,
-  psf: c => (c.listing_price && c.building_sf) ? c.listing_price / c.building_sf : null,
+  ppu: scaled(askPriceUnit, 1 / 1000),
+  psf: askPriceSF,
 }
 
 export async function fetchSnapshotData(filters = {}) {
@@ -242,20 +249,13 @@ export async function fetchSnapshotData(filters = {}) {
     from += PAGE
   }
 
-  // scope / era / unit-range filters from the Snapshot filter strip
+  // scope filters from the Snapshot filter strip — canonical inScope applies
+  // county / sub-market / ZIP / era / unit range uniformly. Note: zip is now
+  // actually applied (it previously was collected by the UI but never filtered),
+  // and comps with no unit count are excluded when a unit range is set
+  // (matching Excel range criteria, which exclude blanks).
   const f = filters || {}
-  const unitMin = (f.unitMin === '' || f.unitMin == null) ? null : Number(f.unitMin)
-  const unitMax = (f.unitMax === '' || f.unitMax == null) ? null : Number(f.unitMax)
-  const eraSel  = (f.era && f.era !== 'All') ? _normEra(f.era) : null
-  const scoped = all.filter(c => {
-    if (f.county    && f.county    !== 'All' && c.property_county !== f.county) return false
-    if (f.subMarket && f.subMarket !== 'All' && c.sub_market      !== f.subMarket) return false
-    if (eraSel && _normEra(c.year_built_era) !== eraSel) return false
-    const u = Number(c.num_units)
-    if (unitMin != null && u && u < unitMin) return false
-    if (unitMax != null && u && u > unitMax) return false
-    return true
-  })
+  const scoped = all.filter(c => inScope(c, f))
 
   // bucket comps by quarter (sold by sale_date, listings by listing_date)
   const soldByQ   = MS_QUARTERS.map(() => [])
@@ -288,12 +288,13 @@ export async function fetchSnapshotData(filters = {}) {
   // so they respond to every scope filter (county / sub-market / zip / era / unit range).
   // Asking-based pricing uses listing_price (these haven't sold yet), guarded by the same
   // exclusion flags as the sold formulas.
-  const _ask_ppu = c => (c.listing_price && c.num_units)   ? (c.listing_price / c.num_units) / 1000 : null  // $k/unit
-  const _ask_cap = c => (!c.x_noi && c.adv_noi > 0 && c.listing_price) ? (c.adv_noi / c.listing_price) * 100 : null
-  const _ask_grm = c => (!c.x_agi && c.adv_agi > 0 && c.listing_price) ? c.listing_price / c.adv_agi : null
+  const _ask_ppu = scaled(askPriceUnit, 1 / 1000)   // $k/unit (display scaling)
+  const _ask_cap = scaled(askCap, 100)              // decimal → % (display scaling)
+  const _ask_grm = askGRM
 
   const activePool = scoped.filter(c => c.status === 'Active')
-  const ucPool     = scoped.filter(c => c.status === 'Under Contract' || c.status === 'Pending')
+  // data uses "Under Contract" — there is no literal "Pending" status (spec §D)
+  const ucPool     = scoped.filter(c => isUnderContract(c.status))
 
   const active = {
     count: activePool.length,
@@ -307,13 +308,13 @@ export async function fetchSnapshotData(filters = {}) {
     ppu:      _median(ucPool.map(_ask_ppu)),
     cap:      _median(ucPool.map(_ask_cap)),
     grm:      _median(ucPool.map(_ask_grm)),
-    daysToUC: _median(ucPool.map(c => _daysBetween(c.listing_date, c.pending_date))),
+    daysToUC: _median(ucPool.map(daysToUC)),
   }
 
   // Months of supply = current active inventory ÷ monthly sold pace over the trailing 12 months.
   const _now = new Date()
   const _yearAgo = new Date(_now.getFullYear() - 1, _now.getMonth(), _now.getDate())
-  const soldLast12 = scoped.filter(c => { if (c.status !== 'Sold') return false; const d = _parseDt(c.sale_date); return d && d >= _yearAgo && d <= _now }).length
+  const soldLast12 = scoped.filter(c => { if (c.status !== 'Sold') return false; const d = parseDate(c.sale_date); return d && d >= _yearAgo && d <= _now }).length
   const monthlyPace = soldLast12 / 12
   const monthsOfInventory = monthlyPace > 0 ? active.count / monthlyPace : null
 
