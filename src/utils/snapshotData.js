@@ -357,6 +357,11 @@ export async function fetchSnapshotData(filters = {}) {
      cash/buyer partition the filtered pool; the geo/era splits re-run the
      filter set with exactly that one dimension widened, so the comparison is
      always "this filter vs the broader slice it sits inside". */
+  // geography actually present in the filtered slice (drives the geo cohorts)
+  const geoCounties = new Set(scoped.map(c => c.property_county).filter(Boolean))
+  const geoSubMkts  = new Set(scoped.map(c => c.sub_market).filter(Boolean))
+  const prodF = { era: f.era, unitMin: f.unitMin, unitMax: f.unitMax }   // product-type filters only
+
   const SPLIT_COHORTS = {
     cash: [
       { label: 'All cash', eng: makeEngine(scoped.filter(c => !Number(c.loan_amount))) },
@@ -366,8 +371,14 @@ export async function fetchSnapshotData(filters = {}) {
       { label: 'Owner-occ', eng: makeEngine(scoped.filter(c => !!c.owner_occ_purchase)) },
       { label: 'Investor',  eng: makeEngine(scoped.filter(c => !c.owner_occ_purchase)) },
     ],
-    county:    [{ label: 'County avg',     eng: makeEngine(all.filter(c => inScope(c, { ...f, subMarket: 'All', zip: 'All' }))) }],
-    submarket: [{ label: 'Sub-market avg', eng: makeEngine(all.filter(c => inScope(c, { ...f, zip: 'All' }))) }],
+    // Geo cohorts are INFERRED from the filtered slice, not read off the filter
+    // controls: "vs County" = comps in the county/ies the current slice actually
+    // sits in (so picking a sub-market compares against ITS county even when the
+    // County filter is All), and "vs Sub-market" = the sub-market(s) a zip slice
+    // sits in. Product-type filters (era + unit range) are kept so the
+    // comparison stays apples-to-apples.
+    county:    [{ label: 'County avg',     eng: makeEngine(all.filter(c => geoCounties.has(c.property_county) && inScope(c, prodF))) }],
+    submarket: [{ label: 'Sub-market avg', eng: makeEngine(all.filter(c => geoSubMkts.has(c.sub_market) && inScope(c, prodF))) }],
     era:       [{ label: 'All eras',       eng: makeEngine(all.filter(c => inScope(c, { ...f, era: 'All' }))) }],
   }
   const TFS = Object.keys(TF_DAYS)
