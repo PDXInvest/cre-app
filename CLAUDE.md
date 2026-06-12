@@ -14,6 +14,13 @@ Covers the full acquisition workflow: property CRM → comp analysis → financi
 - Vercel (hosting)
 - No TypeScript — plain JS/JSX
 
+## Auth & Security (locked down 2026-06-12)
+- SPA requires Supabase Auth email/password sign-in (single user). Gate lives in `App.jsx`; login UI in `src/components/Login.jsx`; sign-out button in `ApShell.jsx`.
+- All 10 tables: RLS policies are `for all to authenticated`; anon table privileges revoked. See `supabase/migrations/20260612000000_lockdown_authenticated_only.sql`.
+- Public OM client view stays anonymous via the `get_om_json(p_proposal_id uuid)` SECURITY DEFINER RPC — returns only `om_json`. New anonymous surfaces should follow this RPC pattern, never anon table grants.
+- `property-photos` storage: public read, authenticated-only write (migration `...000001`).
+- DDL cannot run with the anon key — paste migrations into the Supabase dashboard SQL editor.
+
 ## Session Protocol
 - Always `git pull` before making any changes
 - Always commit and sync via VS Code Source Control at session end
@@ -189,7 +196,7 @@ The OM was pivoted from a hand-built 36-page HTML doc to a **dumb template rende
 - **Templates** (`om-templates.jsx`, 12 total): `cover`, `narrative`, `table`, `card-grid`, `bullets-photo`, `photo-detail`, `stat-tiles`, `financial-summary`, `pricing-strategy`, `qa`, `timeline`, `body-copy`. Each is a pure function of `data` + global `property`. Register new ones in `TEMPLATE_REGISTRY` + add CSS to the shell.
 - **Interpolation**: `{{property.name}}`-style placeholders in page data resolved against the document before render (`om-render.jsx`).
 - **Generate flow**: ProposalDetail "Generate OM" → `src/utils/omSerialize.js` fetches proposal/units/financials/dashboard/marketing-comps, computes metrics (income source, caps, GRM, market stats, pricing band, unit mix), emits the document, saves to `proposals.om_json`, opens `/om?proposal=<id>&view=client`.
-- **Renderer data source**: when `?proposal=<id>` is present, `om-render.jsx` fetches `proposals.om_json` from Supabase (anon key embedded — public read). Falls back to `OM_DEFAULT_DOC`. The Data paste pane (editor view) is a manual override.
+- **Renderer data source**: when `?proposal=<id>` is present, `om-render.jsx` calls the `get_om_json(p_proposal_id)` SECURITY DEFINER RPC with the embedded anon key — this RPC is the only anonymous read surface; the proposals table itself is not anon-readable. Falls back to `OM_DEFAULT_DOC`. The Data paste pane (editor view) is a manual override.
 - **Image slots**: `<image-slot>` web component (shadow DOM, drag-and-drop, reframe). Slot IDs come from page data (e.g. `heroSlotId`, `photoSlotId`, `slotId`).
 - **PDF export** (`api/export-om-pdf.js`): Browserless `/function` loads `?view=client`, waits for `.om-page`, `page.pdf({ format:'Letter', landscape:true, printBackground:true, scale:1 })`. Browserless JSON-stringifies returns, so the PDF is base64-encoded in-runtime (btoa, no Node Buffer) and decoded server-side. Requires `BROWSERLESS_TOKEN` Vercel env var.
 - Print: last `.om-page` uses `page-break-after: avoid` to prevent a blank trailing page.

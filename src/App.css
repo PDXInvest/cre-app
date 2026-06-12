@@ -81,6 +81,14 @@
 .ap-user .avatar { background: var(--accent); }
 .ap-user-name { font-size: 12px; font-weight: 600; display: block; }
 .ap-user-role { font-size: 10px; color: rgba(255,255,255,0.45); }
+.ap-user-txt { flex: 1; min-width: 0; }
+.ap-signout {
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: rgba(255,255,255,0.45); padding: 6px; border-radius: var(--r);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.ap-signout:hover { background: rgba(255,255,255,0.06); color: #fff; }
 
 .avatar {
   width: 28px; height: 28px; border-radius: 50%;
@@ -112,6 +120,7 @@
 .ap-side.is-collapsed .ap-collapse { justify-content: center; padding: 9px 0; gap: 0; }
 .ap-side.is-collapsed .ap-user { justify-content: center; padding-left: 0; padding-right: 0; }
 .ap-side.is-collapsed .ap-user-txt { display: none; }
+.ap-side.is-collapsed .ap-signout { display: none; }
 
 /* ---------- MAIN ---------- */
 /* min-width:0 is the load-bearing reflow fix: lets flexible content shrink to
@@ -722,3 +731,39 @@
   background: rgba(0,0,0,0.6); color: #fff; border: none; font-size: 14px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; line-height: 1;
 }
+
+/* ---------- LOGIN ---------- */
+.login-wrap {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--paper); padding: 24px;
+}
+.login-card {
+  width: 100%; max-width: 360px; background: var(--surface);
+  border: 1px solid var(--hairline); border-radius: var(--r-lg);
+  padding: 32px 28px; display: flex; flex-direction: column;
+  box-shadow: 0 2px 12px rgba(21,22,26,0.06);
+}
+.login-brand { display: flex; flex-direction: column; margin-bottom: 24px; }
+.login-brand-name { font-family: var(--serif); font-size: 22px; color: var(--ink); }
+.login-brand-sub {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); margin-top: 2px;
+}
+.login-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--slate); margin-bottom: 6px;
+}
+.login-input {
+  font-family: inherit; font-size: 14px; color: var(--ink);
+  border: 1px solid var(--hairline-2); border-radius: var(--r);
+  padding: 9px 11px; margin-bottom: 16px; background: var(--surface);
+}
+.login-input:focus { outline: none; border-color: var(--accent); }
+.login-error { font-size: 12.5px; color: var(--neg); margin: 0 0 14px; }
+.login-btn {
+  font-family: inherit; font-size: 13px; font-weight: 600; color: #fff;
+  background: var(--accent); border: none; border-radius: var(--r);
+  padding: 10px 0; cursor: pointer; transition: background 0.12s;
+}
+.login-btn:hover { background: var(--accent-2); }
+.login-btn:disabled { opacity: 0.6; cursor: default; }

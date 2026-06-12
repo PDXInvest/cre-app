@@ -19,15 +19,16 @@ const SUPABASE_KEY = "sb_publishable_HqGEKnApICX4YpNXcNmQuQ_G7--sP1y";
 
 document.body.setAttribute("data-view", IS_CLIENT ? "client" : "editor");
 
-/* Fetch the proposal's om_json document from Supabase. Returns null on
-   any failure so the renderer falls back to the default doc. */
+/* Fetch the proposal's om_json document from Supabase. Goes through the
+   get_om_json() SECURITY DEFINER function — the proposals table itself is
+   not readable with the anon key; this RPC is the only anonymous surface.
+   Returns null on any failure so the renderer falls back to the default doc. */
 async function fetchProposalDoc(proposalId) {
   try {
     if (typeof supabase === "undefined") return null;
     const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    const { data, error } = await sb.from("proposals").select("om_json").eq("id", proposalId).single();
-    if (error || !data) return null;
-    const doc = data.om_json;
+    const { data: doc, error } = await sb.rpc("get_om_json", { p_proposal_id: proposalId });
+    if (error) return null;
     if (doc && Array.isArray(doc.pages) && doc.pages.length) return doc;
     return null;
   } catch (e) {

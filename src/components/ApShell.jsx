@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { supabase } from '../supabase'
 
 const AP_ICONS = {
   properties: 'M3 9.5 L8 5.5 L13 9.5 M4.2 8.6 V13 H11.8 V8.6',
@@ -70,6 +71,13 @@ export default function ApShell({ children }) {
             <span className="ap-user-name">Benjamin Ficker</span>
             <span className="ap-user-role">Principal Broker</span>
           </span>
+          <button className="ap-signout" title="Sign out"
+            onClick={() => supabase.auth.signOut()}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+              strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 2.5 H3 V13.5 H6 M10.5 5 L13.5 8 L10.5 11 M13.5 8 H6.5" />
+            </svg>
+          </button>
         </div>
       </aside>
 
